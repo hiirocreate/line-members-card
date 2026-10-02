@@ -91,6 +91,16 @@ test('管理API: 認証・店舗分離・権限・Excel出力', async () => {
   } finally { srv.closeAllConnections(); srv.close(); }
 });
 
+test('管理画面の静的配信: CSPは自己ホストのスクリプトのみ', async () => {
+  const { app } = setup();
+  const { srv, call } = await boot(app);
+  try {
+    for (const p of ['/admin', '/admin.js', '/admin.css', '/formkit.js']) assert.equal((await call(p)).status, 200, p);
+    const csp = (await call('/admin')).headers.get('content-security-policy');
+    assert.match(csp, /script-src 'self';/); assert.ok(!csp.includes('unsafe-inline') || !/script-src[^;]*unsafe-inline/.test(csp));
+  } finally { srv.closeAllConnections(); srv.close(); }
+});
+
 test('ログイン試行制限', async () => {
   const { app } = setup();
   createAdmin(app.store, OP, { role: 'STORE_ADMIN', tenantId: 'SHOP001', email: 'a@x.jp', password: 'correct-horse-battery' });

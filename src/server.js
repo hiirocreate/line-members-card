@@ -7,13 +7,16 @@ import { createApp } from './app.js';
 import { SheetsStore } from './sheetsStore.js';
 import { renderForm } from './render.js';
 import { ValidationError } from './sanitize.js';
-import { Forbidden } from './permissions.js';
+import { Forbidden, PERMS, can } from './permissions.js';
 import { login, verifySession, verifyLineIdToken, createAdmin, setAdminEnabled, bootstrapOperator, LoginLimiter } from './auth.js';
 import { addMasterField, setBannedTerms, listMaster } from './master.js';
 import { listAudit } from './audit.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
-const STATIC = { '/app': ['app.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'] };
+const JS = 'text/javascript; charset=utf-8';
+const STATIC = { '/app': ['app.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/formkit.js': ['formkit.js', JS],
+  '/admin': ['admin.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', JS], '/admin.css': ['admin.css', 'text/css; charset=utf-8'] };
+const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; " +
   "connect-src 'self' https://*.line.me https://*.line-apps.com https://*.line-scdn.net; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'none'";
@@ -81,6 +84,13 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     let m;
     const ok = (obj = { ok: true }, code = 200) => send(res, code, obj);
 
+    if (path === '/me' && req.method === 'GET') {
+      const t = actor.tenantId && app.store.find('tenants', (x) => x.tenant_id === actor.tenantId);
+      return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)) });
+    }
+    if (isOp && path === '/tenants' && req.method === 'GET') return ok({ tenants: app.store.select('tenants').map(({ tenant_id, name, status }) => ({ tenant_id, name, status })) });
+    if (isOp && path === '/admins' && req.method === 'GET') return ok({ admins: app.store.select('admins').map(({ admin_id, tenant_id, email, role, enabled }) => ({ admin_id, tenant_id, email, role, enabled })) });
+
     // 運営管理者専用
     if (path === '/tenants' && req.method === 'POST') { const token = f.createTenant(actor, body.tenantId, body.name); return ok({ tenantId: body.tenantId, registrationToken: token }, 201); }
     if (path === '/admins' && req.method === 'POST') return ok(createAdmin(app.store, actor, body), 201);
@@ -139,7 +149,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if (req.method === 'GET' && p === '/app/config.json') return send(res, 200, { liffId: liffId ?? '' });
     if (req.method === 'GET' && STATIC[p]) {
       const [file, type] = STATIC[p];
-      return send(res, 200, await readFile(PUBLIC_DIR + file), type, { 'content-security-policy': APP_CSP });
+      return send(res, 200, await readFile(PUBLIC_DIR + file), type, { 'content-security-policy': p.startsWith('/admin') ? ADMIN_CSP : APP_CSP });
     }
     let m;
     if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+))?$/.exec(p))) await publicApi(req, res, url, m[1], m[2]);

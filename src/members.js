@@ -3,12 +3,15 @@ import { ValidationError } from './sanitize.js';
 import { validateValue, displayValue } from './fieldTypes.js';
 import { require_, canSeeField, can } from './permissions.js';
 import { audit } from './audit.js';
+import { buildXlsx } from './xlsx.js';
 
 const now = () => new Date().toISOString();
 export const UNREGISTERED = '未登録';
 
 export class MemberService {
   constructor(store, forms) { this.store = store; this.forms = forms; }
+
+  findByUser(tenantId, userId) { return this.store.find('members', (m) => m.tenant_id === tenantId && m.user_id === userId); }
 
   // ---- 値の読み書き ----
   #member(tenantId, memberId) {
@@ -190,7 +193,7 @@ export class MemberService {
   }
 
   // ---- CSV (Excelで開けるUTF-8 BOM付き) 出力 ----
-  exportCsv(actor, tenantId, { columns, where, sort }) {
+  #exportTable(actor, tenantId, { columns, where, sort }, format) {
     require_(actor, 'EXPORT_MEMBERS', tenantId);
     const { fields } = this.#rows(actor, tenantId);
     const fieldById = new Map(fields.map((f) => [f.field_id, f]));
@@ -210,13 +213,20 @@ export class MemberService {
       head.push(f.field_name); getters.push(({ m, v }) => { const r = this.#read(m, f, v); return r === null ? '' : displayValue(f, r); });
     }
     const { _rows } = this.search(actor, tenantId, { where, sort, limit: Infinity });
+    const table = [head, ..._rows.map((r) => getters.map((g) => g(r)))];
+    audit(this.store, { tenant_id: tenantId, actor, action: 'MEMBERS_EXPORT', target: format, detail: { columns, rows: _rows.length } });
+    return table;
+  }
+  exportCsv(actor, tenantId, opts) {
+    const table = this.#exportTable(actor, tenantId, opts, 'csv');
     const esc = (x) => {
       let s = String(x ?? '');
       if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // CSVインジェクション対策
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const lines = [head, ..._rows.map((r) => getters.map((g) => g(r)))].map((l) => l.map(esc).join(','));
-    audit(this.store, { tenant_id: tenantId, actor, action: 'MEMBERS_EXPORT', target: 'csv', detail: { columns, rows: _rows.length } });
-    return `﻿${lines.join('\r\n')}\r\n`;
+    return `\uFEFF${table.map((l) => l.map(esc).join(',')).join('\r\n')}\r\n`;
+  }
+  exportXlsx(actor, tenantId, opts) {
+    return buildXlsx(this.#exportTable(actor, tenantId, opts, 'xlsx'));
   }
 }

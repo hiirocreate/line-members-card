@@ -18,8 +18,9 @@ export const SHEETS = {
   form_versions: ['tenant_id', 'version', 'snapshot', 'created_by', 'created_at'],
   audit_logs: ['log_id', 'tenant_id', 'actor', 'action', 'target', 'detail', 'created_at'],
   settings: ['key', 'value'],
+  admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at'],
 };
-const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value']);
+const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants']);
 
 export class Store {
   constructor(file = null) {
@@ -29,20 +30,21 @@ export class Store {
   }
   select(table, pred = () => true) { return this.t[table].filter(pred).map((r) => structuredClone(r)); }
   find(table, pred) { return this.select(table, pred)[0] ?? null; }
-  insert(table, row) { this.t[table].push(structuredClone(row)); this.#save(); return row; }
+  insert(table, row) { this.t[table].push(structuredClone(row)); this._changed(table); return row; }
   update(table, pred, patch) {
     let n = 0;
     for (const r of this.t[table]) if (pred(r)) { Object.assign(r, structuredClone(patch)); n++; }
-    if (n) this.#save();
+    if (n) this._changed(table);
     return n;
   }
   remove(table, pred) { // 運営管理者の完全削除専用。通常運用では使わない
     const before = this.t[table].length;
     this.t[table] = this.t[table].filter((r) => !pred(r));
-    this.#save();
+    this._changed(table);
     return before - this.t[table].length;
   }
-  #save() { if (this.file) writeFileSync(this.file, JSON.stringify(this.t)); }
+  // 変更フック (サブクラスが永続化に使う)
+  _changed() { if (this.file) writeFileSync(this.file, JSON.stringify(this.t)); }
 
   // Google Sheets 形式 (ヘッダー行 + セル値) へ出力/取り込み
   exportSheets() {
@@ -59,9 +61,10 @@ export class Store {
     for (const [name, [headers, ...rows]] of Object.entries(sheets)) {
       this.t[name] = rows.map((cells) => Object.fromEntries(headers.map((h, i) => {
         const c = cells[i];
-        return [h, JSON_COLS.has(h) && c !== '' ? JSON.parse(c) : c];
+        if (JSON_COLS.has(h)) return [h, c === '' || c === undefined ? (h === 'options' ? [] : undefined) : JSON.parse(c)];
+        return [h, c ?? ''];
       })));
     }
-    this.#save();
+    for (const name of Object.keys(sheets)) this._changed(name);
   }
 }

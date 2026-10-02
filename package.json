@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node src/main.js",
     "test": "node --test test/*.test.js"
   }
 }

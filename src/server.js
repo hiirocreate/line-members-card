@@ -187,7 +187,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
   async function route(req, res) {
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
-    if (p === '/healthz') return send(res, 200, { ok: true });
+    if (p === '/healthz' || p === '/status') return send(res, 200, { ok: true }); // Cloud Run の run.app では /healthz がGoogle側で予約され届かないため /status も用意
     if (req.method === 'GET' && p === '/app/config.json') { // 店舗ごとの LIFF ID (未設定なら既定値)
       const t = url.searchParams.get('t');
       let id = liffId ?? '';

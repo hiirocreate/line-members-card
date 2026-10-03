@@ -92,6 +92,12 @@ test('管理API: 認証・店舗分離・権限・Excel出力', async () => {
   } finally { srv.closeAllConnections(); srv.close(); }
 });
 
+test('死活確認用パス /status', async () => {
+  const { app } = setup();
+  const { srv, call } = await boot(app);
+  try { assert.deepEqual((await call('/status')).json, { ok: true }); assert.deepEqual((await call('/healthz')).json, { ok: true }); } finally { srv.closeAllConnections(); srv.close(); }
+});
+
 test('管理画面の静的配信: CSPは自己ホストのスクリプトのみ', async () => {
   const { app } = setup();
   const { srv, call } = await boot(app);

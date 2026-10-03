@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 // シートごとのヘッダー。配列/オブジェクト列は JSON 文字列でセルに保存する。
 export const SHEETS = {
-  tenants: ['tenant_id', 'name', 'status', 'form_version', 'created_at', 'liff_id', 'login_channel_id', 'messaging_token', 'shopcard_url'],
+  tenants: ['tenant_id', 'name', 'status', 'form_version', 'created_at', 'liff_id', 'login_channel_id', 'messaging_token', 'shopcard_url', 'require_friend', 'friend_url'],
   tenant_urls: ['token', 'tenant_id', 'enabled', 'created_at'],
   members: ['member_id', 'tenant_id', 'user_id', 'member_number', 'name', 'phone', 'email',
     'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version', 'withdrawn_at', 'withdraw_reason'],
@@ -21,11 +21,14 @@ export const SHEETS = {
   admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at', 'totp_secret', 'totp_pending',
     'totp_enabled', 'recovery_codes', 'token_epoch', 'line_user_id', 'line_linked_at'],
   passkeys: ['credential_id', 'admin_id', 'name', 'public_key', 'alg', 'sign_count', 'transports', 'created_at', 'last_used_at'],
+  coupons: ['coupon_id', 'tenant_id', 'title', 'benefit', 'description', 'valid_from', 'valid_until', 'status', 'created_by', 'created_at', 'updated_at'],
+  coupon_grants: ['coupon_id', 'tenant_id', 'member_id', 'message_id', 'granted_at'],
+  coupon_redemptions: ['redemption_id', 'coupon_id', 'tenant_id', 'member_id', 'redeemed_at', 'recorded_by', 'method'],
   card_designs: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
   card_assets: ['asset_id', 'tenant_id', 'kind', 'mime', 'chunk', 'total', 'size', 'data', 'created_at'],
   password_resets: ['token_hash', 'admin_id', 'expires_at', 'used', 'created_by', 'created_at'],
   visits: ['visit_id', 'tenant_id', 'member_id', 'visited_at', 'method', 'recorded_by'],
-  messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at'],
+  messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at', 'coupon_id'],
 };
 const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config']);
 

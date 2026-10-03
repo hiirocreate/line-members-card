@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { SheetsStore } from './sheetsStore.js';
 import { renderForm } from './render.js';
-import { ValidationError, AuthError } from './sanitize.js';
+import { ValidationError, AuthError, FriendRequiredError } from './sanitize.js';
 import { Forbidden, PERMS, can, require_ } from './permissions.js';
 import { login, verifySession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey, sendLineCode, startLineLink, readLineLink, completeLineLink, unlinkLine, lineLinked } from './auth.js';
-import { push } from './line.js';
+import { push, isFriend, friendAddUrl, botInfo } from './line.js';
 import { resolveLine, publicLine, setLine, testMessaging } from './settings.js';
 import { addMasterField, setBannedTerms, listMaster, getBannedTerms } from './master.js';
 import { listAudit } from './audit.js';
@@ -46,6 +46,29 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
     return { origin: `${local ? 'http' : 'https'}://${host}`, rpId: host.replace(/:\d+$/, '') };
   };
+  // 友だち追加の確認 (会員登録の条件)。店舗の設定が有効なとき、LINEのサーバーに問い合わせて確かめる(端末の申告は信用しない)。
+  const basicIds = new Map(); // tenantId -> { id, at } (友だち追加URLの生成用。1時間キャッシュ)
+  async function friendStatus(tenantId, userId) {
+    const cfg = resolveLine(app.store, app.vault, tenantId, defaults);
+    if (!cfg.requireFriend) return { required: false, friend: true };
+    if (!cfg.messagingToken) throw new ValidationError('友だち追加の確認ができません(店舗の設定を確認してください)');
+    const friend = await isFriend(cfg.messagingToken, userId, fetchImpl);
+    let addUrl = cfg.friendUrl || null;
+    if (!friend && !addUrl) {
+      let c = basicIds.get(tenantId);
+      if (!c || Date.now() - c.at > 3600_000) { try { c = { id: (await botInfo(cfg.messagingToken, fetchImpl)).basicId, at: Date.now() }; basicIds.set(tenantId, c); } catch { c = null; } }
+      addUrl = friendAddUrl(c?.id);
+    }
+    return { required: true, friend, addUrl: friend ? null : addUrl };
+  }
+  // クーポン配信のリンク: 店舗のLIFF + 登録URLのtoken + クーポンID
+  app.messaging.couponUrl = (actor, tenantId, couponId) => {
+    const l = resolveLine(app.store, app.vault, tenantId, defaults);
+    if (!l.liffId) return null;
+    const tok = app.store.find('tenant_urls', (u) => u.tenant_id === tenantId && u.enabled)?.token ?? app.forms.issueRegistrationUrl(actor, tenantId);
+    return `https://liff.line.me/${l.liffId}?t=${tok}&coupon=${couponId}`;
+  };
+
   // 応答は即送らず保留し、永続化(flush)が終わってから返す
   const pending = new WeakMap();
   const send = (res, code, body, type = 'application/json; charset=utf-8', extra = {}) => pending.set(res, () => {
@@ -58,7 +81,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
   };
   const bearer = (req) => /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
 
-  async function publicApi(req, res, url, tenantToken, rest, arg) {
+  async function publicApi(req, res, url, tenantToken, rest, arg, sub) {
     const tenantId = app.forms.resolveTenant(tenantToken);
     const form = app.forms.getUserForm(tenantId);
     const shop = app.store.find('tenants', (t) => t.tenant_id === tenantId).name;
@@ -72,10 +95,13 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     }
     if (req.method === 'GET' && rest === 'form') return send(res, 200, { shop, version: form.version, fields: form.fields.map(strip) });
     if (req.method === 'POST' && rest === 'confirm') return send(res, 200, app.members.confirmRegistration(tenantId, (await readBody(req)).values ?? {}));
-    if (['register', 'me', 'qr', 'withdraw', 'consent'].includes(rest)) {
+    if (['register', 'me', 'qr', 'withdraw', 'consent', 'friend', 'coupons', 'coupon'].includes(rest)) {
       const userId = await verifyLine(bearer(req), line.loginChannelId, fetchImpl); // 必ずLINEのIDトークンから userId を得る(店舗ごとのチャネルで検証)
+      if (req.method === 'GET' && rest === 'friend') return send(res, 200, await friendStatus(tenantId, userId)); // 登録前の確認(画面の案内用)
       if (req.method === 'POST' && rest === 'register') {
         const body = await readBody(req);
+        const fs = await friendStatus(tenantId, userId); // 登録の条件(サーバー側で必ず確認)
+        if (fs.required && !fs.friend) throw new FriendRequiredError(fs.addUrl);
         const m = app.members.register(tenantId, userId, body.values ?? {}, { confirmed: body.confirmed === true });
         return send(res, 201, { member_id: m.member_id, member_number: m.member_number });
       }
@@ -90,6 +116,14 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
           card: app.card.get(tenantId).design, card_data: { name: member.name || '', member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
+      if (rest === 'coupons' || rest === 'coupon') { // クーポン (会員本人・有効な会員のみ)
+        const mem = app.members.findByUser(tenantId, userId);
+        if (!mem || mem.status === 'WITHDRAWN') throw new ValidationError('会員登録が必要です');
+        if (req.method === 'GET' && rest === 'coupons') return send(res, 200, { coupons: app.coupons.memberList(tenantId, mem.member_id) });
+        if (req.method === 'GET' && rest === 'coupon' && arg && !sub) return send(res, 200, app.coupons.memberCoupon(tenantId, mem.member_id, arg));
+        if (req.method === 'POST' && rest === 'coupon' && arg && sub === 'code') return send(res, 200, app.coupons.issueRedeemCode(tenantId, mem.member_id, arg));
+        return send(res, 404, { error: 'not found' });
+      }
       if (req.method === 'POST' && rest === 'consent') {
         const b = await readBody(req);
         app.members.setConsentByUser(tenantId, userId, b.channel, b.granted);
@@ -203,6 +237,14 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
       app.store.update('tenant_urls', (u) => u.token === m[1] && u.tenant_id === needTenant(), { enabled: false }); return ok();
     }
 
+    // クーポン (作成・編集・終了)。使用は、QR読み取り(来店スキャン)か会員番号で、スタッフも行える
+    if (path === '/coupons' && req.method === 'GET') return ok({ coupons: app.coupons.list(actor, needTenant()) });
+    if (path === '/coupons/active' && req.method === 'GET') return ok({ coupons: app.coupons.active(actor, needTenant()) });
+    if (path === '/coupons' && req.method === 'POST') return ok(app.coupons.create(actor, needTenant(), body), 201);
+    if (path === '/coupons/redeem' && req.method === 'POST') return ok(body.code ? app.coupons.redeemByCode(actor, needTenant(), body.code) : app.coupons.redeemManual(actor, needTenant(), body));
+    if ((m = /^\/coupons\/([0-9a-f]{32})$/.exec(path)) && req.method === 'PUT') return ok(app.coupons.update(actor, needTenant(), m[1], body));
+    if ((m = /^\/coupons\/([0-9a-f]{32})\/(archive|restore)$/.exec(path)) && req.method === 'POST') { app.coupons.setStatus(actor, needTenant(), m[1], m[2] === 'archive' ? 'ARCHIVED' : 'ACTIVE'); return ok(); }
+
     // 会員証デザイン (カード面・会員画面のテーマ・画像)
     if (path === '/card' && req.method === 'GET') { require_(actor, 'CARD_DESIGN', needTenant()); return ok({ ...app.card.get(tenant), assets: app.card.assets(tenant), tenantName: app.store.find('tenants', (x) => x.tenant_id === tenant)?.name ?? '' }); }
     if (path === '/card' && req.method === 'PUT') return ok(app.card.save(actor, needTenant(), body.design));
@@ -266,7 +308,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
       return send(res, 200, await readFile(PUBLIC_DIR + file), type, { 'content-security-policy': p.startsWith('/admin') ? ADMIN_CSP : APP_CSP });
     }
     let m;
-    if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+)(?:\/([0-9a-f]{32}))?)?$/.exec(p))) await publicApi(req, res, url, m[1], m[2], m[3]);
+    if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+)(?:\/([0-9a-f]{32})(?:\/([a-z]+))?)?)?$/.exec(p))) await publicApi(req, res, url, m[1], m[2], m[3], m[4]);
     else if (p.startsWith('/api/admin/')) await adminApi(req, res, url, p.slice('/api/admin'.length));
     else return send(res, 404, { error: 'not found' });
     if (req.method !== 'GET') await app.store.flush?.(); // Sheets への書き込み完了後に応答
@@ -275,7 +317,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
   return http.createServer(async (req, res) => {
     try { await route(req, res); } catch (e) {
       if (e instanceof AuthError) send(res, 401, { error: e.message, code: 'line_auth' });
-      else if (e instanceof ValidationError) send(res, 400, { error: e.message, details: e.details });
+      else if (e instanceof ValidationError) send(res, 400, { error: e.message, details: e.details, code: e.code, addUrl: e.addUrl });
       else if (e instanceof Forbidden) send(res, 403, { error: e.message });
       else { console.error(e); send(res, 500, { error: 'internal error' }); }
     }

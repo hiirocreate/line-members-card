@@ -96,9 +96,9 @@ function resetView(token) {
 }
 
 // ---------- 共通レイアウト ----------
-const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
+const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
-  const tabs = [...TABS.filter(([k]) => (k === 'messages' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' ? can('CARD_DESIGN') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
+  const tabs = [...TABS.filter(([k]) => (k === 'messages' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));
   if (ST.me.role === 'OPERATOR') {
     const sel = el('select', { style: 'width:auto', onchange: () => { ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
@@ -553,14 +553,23 @@ async function scanView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   const status = el('div', { style: 'font-size:16px;min-height:24px;margin:8px 0' }), video = el('video', { playsInline: true, muted: true, style: 'width:100%;max-width:420px;border-radius:10px;background:#000;display:none' });
   const list = el('div'), manual = el('input', { type: 'text', placeholder: '会員番号 (例: 000001)' });
+  const { coupons: activeCoupons } = await api('/coupons/active');
+  const cSel = el('select', {}, activeCoupons.map((c) => el('option', { value: c.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`))), cNum = el('input', { type: 'text', placeholder: '会員番号 (例: 000001)' });
+  const couponManual = activeCoupons.length ? el('div', {}, el('div', { className: 'hint' }, '会員のQRが読み取れないときに使います。会員の画面で、クーポンの内容を確認してから、押してください。'),
+    el('div', { className: 'row', style: 'margin-top:8px' }, cSel, cNum, btn('使用済みにする', run(status, async () => {
+      const r = await api('/coupons/redeem', { method: 'POST', body: { couponId: cSel.value, memberNumber: cNum.value } });
+      status.className = 'ok'; status.textContent = `✓ クーポン「${r.title}」を使用済みにしました(会員 ${r.member_number})`; cNum.value = '';
+    })))) : el('div', { className: 'hint' }, '使えるクーポンがありません。');
   const loadList = async () => {
     const { visits } = await api('/visits');
     list.replaceChildren(el('table', {}, el('tr', {}, ['日時', '会員番号', '氏名', '方法'].map((h) => el('th', {}, h))),
       visits.map((v) => el('tr', {}, [v.visited_at.replace('T', ' ').slice(0, 16), v.member_number, v.name, v.method === 'QR' ? 'QR' : '手動'].map((x) => el('td', {}, x))))));
   };
-  const submit = async (code) => {
-    try { const r = await api('/visits/scan', { method: 'POST', body: { code } }); status.className = 'ok'; status.textContent = `✓ 会員 ${r.member_number} の来店を記録しました(${r.visit_count}回目)`; await loadList(); }
-    catch (e) { status.className = 'err'; status.textContent = e.message; }
+  const submit = async (code) => { // 会員証のQR(来店 MC1.)と、クーポンのQR(MCP1.)の両方を読み取れる
+    try {
+      if (code.startsWith('MCP1.')) { const r = await api('/coupons/redeem', { method: 'POST', body: { code } }); status.className = 'ok'; status.textContent = `✓ クーポン「${r.title}」${r.benefit ? `(${r.benefit})` : ''}を使用済みにしました(会員 ${r.member_number})`; }
+      else { const r = await api('/visits/scan', { method: 'POST', body: { code } }); status.className = 'ok'; status.textContent = `✓ 会員 ${r.member_number} の来店を記録しました(${r.visit_count}回目)`; await loadList(); }
+    } catch (e) { status.className = 'err'; status.textContent = e.message; }
   };
   const start = run(status, async () => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('このブラウザはカメラに対応していません。QRコードの文字列を入力してください。');
@@ -575,10 +584,10 @@ async function scanView() {
     }
     let running = true, last = '', lastAt = 0;
     scanStop = () => { running = false; stream.getTracks().forEach((t) => t.stop()); scanStop = () => {}; };
-    status.className = 'hint'; status.textContent = '会員証のQRコードをカメラにかざしてください';
+    status.className = 'hint'; status.textContent = '会員証のQR、またはクーポンのQRを、カメラにかざしてください';
     (async function loop() {
       while (running) {
-        try { const v = await detect(); if (v && v.startsWith('MC1.') && !(v === last && Date.now() - lastAt < 4000)) { last = v; lastAt = Date.now(); await submit(v); } } catch { /* 読み取り失敗は継続 */ }
+        try { const v = await detect(); if (v && (v.startsWith('MC1.') || v.startsWith('MCP1.')) && !(v === last && Date.now() - lastAt < 4000)) { last = v; lastAt = Date.now(); await submit(v); } } catch { /* 読み取り失敗は継続 */ }
         await new Promise((r) => setTimeout(r, 300));
       }
     })();
@@ -589,7 +598,7 @@ async function scanView() {
       el('div', { className: 'row', style: 'margin-top:8px' }, manual, btn('記録', run(status, async () => {
         const v = manual.value.trim().replace(/\s+/g, '');
         if (!v) return;
-        if (v.startsWith('MC1.')) await submit(v);
+        if (v.startsWith('MC1.') || v.startsWith('MCP1.')) await submit(v);
         else {
           const r = await api('/members/search', { method: 'POST', body: { where: { logic: 'AND', conditions: [{ field: 'member_number', op: 'eq', value: v }] }, limit: 2 } });
           if (r.members.length !== 1) throw new Error('その会員番号の有効な会員が見つかりません');
@@ -598,8 +607,40 @@ async function scanView() {
         }
         manual.value = '';
       })))),
+    el('div', { className: 'card' }, el('h2', {}, 'クーポンを会員番号で使用済みにする(QRが使えないとき)'), couponManual),
     el('div', { className: 'card' }, el('h2', {}, '最近の来店'), list)));
   loadList();
+}
+
+// ---------- クーポン ----------
+const WINDOW_LABEL = { active: '有効', expired: '期限切れ', not_started: '開始前', archived: '終了' };
+const dayText = (d) => (d ? d.replaceAll('-', '/') : '');
+function couponDialog(c, done) {
+  const err = el('div', { className: 'err' });
+  const title = el('input', { type: 'text', value: c?.title ?? '', maxLength: 40, placeholder: '例: 来店感謝クーポン' }), benefit = el('input', { type: 'text', value: c?.benefit ?? '', maxLength: 60, placeholder: '例: ドリンク1杯無料 / 全品10%OFF' });
+  const desc = el('textarea', { value: c?.description ?? '', maxLength: 300, placeholder: '例: 他の割引との併用はできません。お会計時にスタッフへご提示ください。' });
+  const from = el('input', { type: 'date', value: c?.valid_from ?? '' }), until = el('input', { type: 'date', value: c?.valid_until ?? '' });
+  const save = run(err, async () => {
+    const body = { title: title.value, benefit: benefit.value, description: desc.value, valid_from: from.value, valid_until: until.value };
+    if (c) await api(`/coupons/${c.coupon_id}`, { method: 'PUT', body }); else await api('/coupons', { method: 'POST', body });
+    d.close(); done();
+  });
+  const d = el('dialog', {}, el('h2', {}, c ? 'クーポンを編集' : 'クーポンを作成'), lab('クーポン名(必須)', title), lab('特典の内容', benefit, 'メッセージのカードと、会員の画面に大きく表示されます。'), lab('利用条件・説明', desc),
+    lab('利用開始日(任意)', from), lab('有効期限(任意)', until, '日本時間で、その日の終わりまで使えます。空欄なら期限なし。'), err,
+    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+async function couponsView() {
+  if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
+  const { coupons } = await api('/coupons'), err = el('div', { className: 'err' });
+  layout(el('div', { className: 'card' }, el('h2', {}, 'クーポン'),
+    el('div', { className: 'hint', style: 'margin-bottom:10px' }, 'クーポンを作り、「メッセージ配信」で添付して送ります。メッセージが届いた会員にだけ配布され、1人1回使えます。会員が「クーポンを使う」で出したQRを、「来店スキャン」で読み取ると、使用済みになります。'),
+    el('div', { className: 'row', style: 'margin-bottom:10px' }, btn('＋ クーポンを作成', () => couponDialog(null, render), 'pri')),
+    coupons.length ? el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, ['クーポン名', '特典', '期間', '配布', '使用', '状態', ''].map((h) => el('th', {}, h))),
+      coupons.map((c) => el('tr', {}, el('td', {}, c.title), el('td', {}, c.benefit || '-'), el('td', {}, c.valid_from || c.valid_until ? `${dayText(c.valid_from)}〜${dayText(c.valid_until)}` : '期限なし'), el('td', {}, String(c.granted)), el('td', {}, String(c.redeemed)),
+        el('td', {}, el('span', { className: `badge ${c.window === 'active' ? 'int' : ''}` }, WINDOW_LABEL[c.window])),
+        el('td', {}, el('div', { className: 'row' }, btn('編集', () => couponDialog(c, render), 'sm'),
+          btn(c.status === 'ARCHIVED' ? '再開' : '終了', run(err, async () => { await api(`/coupons/${c.coupon_id}/${c.status === 'ARCHIVED' ? 'restore' : 'archive'}`, { method: 'POST' }); render(); }), 'sm'))))))) : el('div', { className: 'hint' }, 'クーポンはまだありません。'), err));
 }
 
 // ---------- メッセージ配信 ----------
@@ -607,16 +648,18 @@ async function messagesView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   ST.fields = (await api('/form')).fields;
   const { messages } = await api('/messages');
+  const { coupons: offerable } = can('COUPON_MANAGE') ? await api('/coupons/active') : { coupons: [] };
   const cb = condBuilder(msgState);
+  const couponSel = el('select', {}, el('option', { value: '' }, '添付しない'), offerable.map((c) => el('option', { value: c.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`)));
   const text = el('textarea', { maxLength: 5000, style: 'min-height:140px', placeholder: '配信するメッセージ(テキスト)' });
   const count = el('div', { style: 'font-size:16px;margin:8px 0' }), err = el('div', { className: 'err' });
   let expected = null;
   const sendBtn = btn('送信', run(err, async () => {
     if (expected === null) throw new Error('先に「対象人数を確認」を押してください');
-    if (!text.value.trim()) throw new Error('メッセージを入力してください');
-    if (!confirm(`${expected}人にメッセージを送信します。取り消しはできません。よろしいですか？`)) return;
-    const r = await api('/messages/send', { method: 'POST', body: { text: text.value, where: cb.where(), expectedCount: expected } });
-    alert(`送信結果: ${r.status}(成功 ${r.sent}人 / 失敗 ${r.failed}人)${r.errors.length ? '\n' + r.errors.join('\n') : ''}`); render();
+    if (!text.value.trim() && !couponSel.value) throw new Error('メッセージを入力するか、クーポンを添付してください');
+    if (!confirm(`${expected}人にメッセージ${couponSel.value ? '(クーポン付き)' : ''}を送信します。取り消しはできません。よろしいですか？`)) return;
+    const r = await api('/messages/send', { method: 'POST', body: { text: text.value, where: cb.where(), expectedCount: expected, couponId: couponSel.value || undefined } });
+    alert(`送信結果: ${r.status}(成功 ${r.sent}人 / 失敗 ${r.failed}人${couponSel.value ? ` / クーポン配布 ${r.granted}人` : ''})${r.errors.length ? '\n' + r.errors.join('\n') : ''}`); render();
   }), 'pri');
   const preview = btn('対象人数を確認', run(err, async () => {
     const r = await api('/messages/preview', { method: 'POST', body: { where: cb.where() } });
@@ -624,7 +667,7 @@ async function messagesView() {
   }));
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, 'LINEメッセージ配信'),
     el('div', { className: 'hint' }, '配信できるのは、有効な会員のうちLINE配信に同意した会員だけです(退会済み・未同意の会員には送られません)。送信にはLINE連携タブでチャネルアクセストークンの登録が必要です。'),
-    lab('メッセージ', text), el('h2', { style: 'margin-top:16px' }, '配信先の絞り込み(任意)'), cb.node, count, err, el('div', { className: 'row' }, preview, sendBtn)),
+    lab('メッセージ', text), can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', couponSel, offerable.length ? 'メッセージの下に、クーポンのカード(「クーポンを使う」ボタン付き)が付きます。届いた会員にだけ配布されます。' : '有効なクーポンがありません。「クーポン」タブで作成してください。') : null, el('h2', { style: 'margin-top:16px' }, '配信先の絞り込み(任意)'), cb.node, count, err, el('div', { className: 'row' }, preview, sendBtn)),
     el('div', { className: 'card' }, el('h2', {}, '配信履歴'), el('table', {}, el('tr', {}, ['日時', '内容', '対象', '成功', '失敗', '状態'].map((h) => el('th', {}, h))),
       messages.map((m) => el('tr', {}, [m.created_at.replace('T', ' ').slice(0, 16), m.text.slice(0, 40), m.audience, m.sent, m.failed, m.status].map((x) => el('td', {}, String(x)))))))));
 }
@@ -638,9 +681,14 @@ async function lineView() {
   const ch = el('input', { type: 'text', value: c.loginChannelId, placeholder: c.usingDefaults.loginChannelId ? '(共通設定を使用中)' : '例: 1234567890' });
   const tok = el('input', { type: 'password', autocomplete: 'off', placeholder: c.hasMessagingToken ? '登録済み(変更する場合のみ入力)' : 'チャネルアクセストークン(長期)' });
   const shop = el('input', { type: 'text', value: c.shopcardUrl, placeholder: 'https://lin.ee/xxxx または https://line.me/...' });
+  // 会員登録の条件: 公式アカウントの友だち追加 (確認にはメッセージ用トークンが必要。LINEのサーバーに問い合わせて確かめる)
+  const rfInit = c.requireFriend ? 'on' : 'off';
+  const rf = el('select', {}, [['on', '必須にする(推奨)'], ['off', '必須にしない']].map(([v, t]) => el('option', { value: v, selected: v === rfInit }, t)));
+  const fu = el('input', { type: 'text', value: c.friendUrl, placeholder: '空欄なら自動(公式アカウントのベーシックIDから作成)  例: https://lin.ee/xxxx' });
   const save = run(err, async () => {
     ok.textContent = '';
-    const body = { liffId: liff.value, loginChannelId: ch.value, shopcardUrl: shop.value }; if (tok.value) body.messagingToken = tok.value;
+    const body = { liffId: liff.value, loginChannelId: ch.value, shopcardUrl: shop.value, friendUrl: fu.value }; if (tok.value) body.messagingToken = tok.value;
+    if (rf.value !== rfInit) body.requireFriend = rf.value === 'on'; // 変更したときだけ送る(未設定の「トークンがあれば有効」を保つため)
     await api('/line-settings', { method: 'PUT', body }); ok.textContent = '保存しました'; tok.value = '';
   });
   const test = run(err, async () => { ok.textContent = ''; const r = await api('/line-settings/test', { method: 'POST' }); ok.textContent = `接続OK: ${r.displayName} (${r.basicId ?? ''})`; });
@@ -648,6 +696,8 @@ async function lineView() {
     el('div', { className: 'hint' }, '別法人の店舗では、店舗のLINE公式アカウントと同じプロバイダー内にLINEログインチャネル/LIFFを作成し、その値を設定してください(プロバイダーが異なるとメッセージ配信のユーザーIDが一致しません)。'),
     lab('LIFF ID(ミニアプリ)', liff, 'リッチメニューのURLに使われます。空欄なら共通設定を使用します。'), lab('LINEログインチャネルID', ch, '会員のLINEログイン(IDトークン)の検証に使われます。'),
     lab('メッセージ用 チャネルアクセストークン', tok, '暗号化して保存され、画面には表示されません。配信に使います。'),
+    lab('友だち追加を、会員登録の条件にする', rf, c.hasMessagingToken ? '友だち追加していない人は、会員登録できません(LINEのサーバーに問い合わせて確認します)。ユーザーIDと公式アカウントが同じプロバイダーでないと、友だちでも確認できず、登録できなくなります。' : '確認には、上のメッセージ用チャネルアクセストークンの登録が必要です(未登録の間は確認しません)。'),
+    lab('友だち追加のURL(任意)', fu, '登録画面の「友だち追加する」ボタンの移動先です。'),
     lab('公式LINE ショップカードのURL', shop, '会員証の画面に「ショップカードを開く」ボタンが表示されます。LINEのURLのみ設定できます。'),
     err, ok, el('div', { className: 'row', style: 'margin-top:12px' }, btn('保存', save, 'pri'), c.hasMessagingToken ? btn('接続テスト', test) : null)));
 }
@@ -752,7 +802,7 @@ async function opsView() {
 }
 
 // ---------- ルーティング ----------
-const VIEWS = { form: formView, card: cardView, members: membersView, scan: scanView, messages: messagesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
+const VIEWS = { form: formView, card: cardView, coupons: couponsView, members: membersView, scan: scanView, messages: messagesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
 // 描画は1つずつ直列に実行し、実行中に再要求があれば終了後にもう一度だけ描き直す。
 // (画面を素早く切り替えたとき、遅れて終わった前の画面が今の画面を上書きしないようにする)
 let rendering = false, renderAgain = false, pollTimer = null;

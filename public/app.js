@@ -36,7 +36,7 @@ const api = async (path, { method = 'GET', body } = {}) => {
   const r = await fetch(`/t/${T}/${path}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` }, body: body && JSON.stringify(body) });
   const j = await r.json();
   if (r.status === 401 && j.code === 'line_auth' && relogin()) return new Promise(() => {});
-  if (!r.ok) throw Object.assign(new Error(j.error), { details: j.details });
+  if (!r.ok) throw Object.assign(new Error(j.error), { details: j.details, code: j.code, addUrl: j.addUrl });
   flag.set(false);
   return j;
 };
@@ -123,6 +123,16 @@ function showCard(me, opts = {}) {
       el('small', {}, '店舗からのお知らせやクーポンを、LINEで受け取るかどうかを選べます。いつでも変更できます。'),
       el('button', { className: on ? 'sub' : '', onclick: async () => { try { await api('consent', { method: 'POST', body: { channel: 'LINE', granted: !on } }); showCard(await api('me'), { privacy }); } catch (e) { showError(e); } } }, on ? 'お知らせを受け取らない' : 'お知らせを受け取る')));
   }
+  // 使えるクーポン (読み込みは非同期)
+  const couponBox = el('div'); root.append(couponBox);
+  api('coupons').then(({ coupons }) => {
+    const list = coupons.filter((x) => x.state === 'available');
+    if (!list.length) return;
+    couponBox.append(el('div', { className: 'card' }, el('b', {}, `使えるクーポン(${list.length})`),
+      ...list.map((x) => el('div', { style: 'margin-top:10px;padding:10px;border:1px solid rgba(128,128,128,.4);border-radius:8px;cursor:pointer', onclick: () => showCoupon(x.coupon.coupon_id, cur) },
+        el('div', { style: 'font-weight:bold' }, x.coupon.title), x.coupon.benefit ? el('div', { style: 'color:#d9381e;font-weight:bold' }, x.coupon.benefit) : null,
+        el('small', {}, x.coupon.valid_until ? `有効期限: ${x.coupon.valid_until.replaceAll('-', '/')}まで` : '有効期限なし')))));
+  }).catch(() => { /* クーポンが読めなくても会員証は使える */ });
   if (design.page.showInfoList) root.append(infoCard); else infoCard.style.display = 'none';
   const editable = form.fields.filter((f) => f.user_editable && !f.consent_target); // 同意は「LINEでのお知らせ」の欄から変更する
   if (editable.length) root.append(el('button', { className: 'sub', onclick: () => showEdit(me, editable) }, '登録情報を変更する'));
@@ -146,6 +156,40 @@ function showEdit(me, editable) {
   }, '保存する'), el('button', { className: 'sub', onclick: () => showCard(me) }, '戻る'));
 }
 
+// ---- クーポン ----
+// 会員が「クーポンを使う」を押すと、5分有効のQRを表示する。スタッフが読み取ると使用済みになり、この画面も切り替わる。
+const COUPON_STATE = { available: '', used: '使用済みです', expired: '有効期限が切れています', not_started: 'まだ利用開始前です', archived: 'このクーポンは終了しました' };
+async function showCoupon(id, me) {
+  clearTimeout(qrTimer); clearInterval(meTimer);
+  const back = async () => showCard(me ?? (await api('me')));
+  let data;
+  try { data = await api(`coupon/${id}`); } catch (e) { root.replaceChildren(el('h1', {}, 'クーポン'), el('div', { className: 'card err' }, e.message), el('button', { className: 'sub', onclick: back }, '会員証に戻る')); return; }
+  const c = data.coupon, until = c.valid_until ? `有効期限: ${c.valid_until.replaceAll('-', '/')}まで` : '有効期限なし';
+  const card = el('div', { className: 'card', style: 'border-left:6px solid var(--accent,#06c755)' }, el('small', { style: 'color:var(--accent,#06c755);font-weight:bold' }, 'COUPON'), el('h2', { style: 'margin:6px 0' }, c.title),
+    c.benefit ? el('div', { style: 'font-size:20px;font-weight:bold;color:#d9381e;margin:6px 0' }, c.benefit) : null, c.description ? el('p', { style: 'white-space:pre-wrap' }, c.description) : null, el('small', {}, until));
+  const body = el('div'), status = el('div', { style: 'text-align:center;font-weight:bold;margin:8px 0' });
+  root.replaceChildren(el('h1', {}, shop), card, status, body, el('button', { className: 'sub', onclick: back }, '会員証に戻る'));
+  if (data.state !== 'available') { status.textContent = COUPON_STATE[data.state] ?? ''; status.className = 'err'; return; }
+
+  let poll = null;
+  const stop = () => { clearInterval(poll); clearTimeout(qrTimer); };
+  async function showCode() {
+    stop();
+    try {
+      const { code, expiresAt } = await api(`coupon/${id}/code`, { method: 'POST' });
+      const box = el('div', { id: 'qr' }); body.replaceChildren(el('div', { className: 'card', style: 'text-align:center' }, box, el('small', {}, 'お会計のときに、この画面をスタッフにお見せください。スタッフが読み取ると、クーポンが使用済みになります。')));
+      new QRCode(box, { text: code, width: 200, height: 200 });
+      status.textContent = ''; status.className = '';
+      qrTimer = setTimeout(showCode, Math.max(10_000, expiresAt - Date.now() - 60_000)); // 期限の1分前に新しいQRへ
+      poll = setInterval(async () => { // 使用済みになったら画面を切り替える
+        try { const d = await api(`coupon/${id}`); if (d.state !== 'available') { stop(); body.replaceChildren(); status.textContent = d.state === 'used' ? '✓ クーポンを使用しました。ご利用ありがとうございました。' : COUPON_STATE[d.state]; status.className = d.state === 'used' ? 'ok' : 'err'; } } catch { /* 無視 */ }
+      }, 4000);
+    } catch (e) { showError(e); }
+  }
+  body.replaceChildren(el('button', { onclick: () => { if (!window.QRCode) return showError(new Error('QRコードを表示できません')); if (confirm('お会計の場でスタッフに見せる画面を開きます。よろしいですか?')) showCode(); } }, 'クーポンを使う'),
+    el('small', { style: 'display:block;text-align:center;margin-top:6px' }, '※ お会計の直前に押してください。'));
+}
+
 // ---- 退会 ----
 function showWithdraw(me) {
   const reason = el('textarea', { maxLength: 200, placeholder: '(任意)退会の理由', style: 'width:100%;min-height:70px;box-sizing:border-box' });
@@ -157,10 +201,27 @@ function showWithdraw(me) {
     } }, '退会する'),
     el('button', { className: 'sub', onclick: () => showCard(me) }, 'キャンセル'));
 }
+// ---- 友だち追加の案内 (会員登録の条件) ----
+// 登録の前に、公式アカウントの友だち追加を確認する。確認はサーバーがLINEに問い合わせて行う。
+async function startRegistration() {
+  try {
+    const f = await api('friend');
+    if (f.required && !f.friend) return showFriendGate(f.addUrl, false);
+  } catch (e) { return showError(e); }
+  showRegister();
+}
+function showFriendGate(addUrl, again) {
+  root.replaceChildren(el('h1', {}, shop), el('div', { className: 'card' }, el('h2', {}, '友だち追加のお願い'),
+    el('p', {}, '会員登録には、この店舗の公式アカウントの友だち追加が必要です。'), el('ol', { style: 'padding-left:20px' }, el('li', {}, '「友だち追加する」を押して、公式アカウントを追加します'), el('li', {}, 'このページに戻って、「追加したので次へ」を押します')),
+    again ? el('div', { className: 'err' }, 'まだ友だち追加が確認できません。追加したあとに、もう一度押してください。(すでに追加済みの場合は、ブロックしていないかご確認ください)') : null),
+    addUrl ? el('button', { onclick: () => openLine(addUrl) }, '友だち追加する') : el('div', { className: 'card err' }, '友だち追加のURLが設定されていません。店舗にお問い合わせください。'),
+    el('button', { className: 'sub', onclick: async () => { try { const f = await api('friend'); if (f.required && !f.friend) return showFriendGate(f.addUrl, true); showRegister(); } catch (e) { showError(e); } } }, '追加したので次へ'));
+}
+
 function showWithdrawn() {
   clearTimeout(qrTimer); clearInterval(meTimer);
   root.replaceChildren(el('h1', {}, shop), el('div', { className: 'card' }, el('p', {}, '退会済みです。'), el('p', {}, 'もう一度ご利用になる場合は、再登録してください。')),
-    el('button', { onclick: showRegister }, '再登録する'));
+    el('button', { onclick: startRegistration }, '再登録する'));
 }
 
 // ---- 登録 ----
@@ -170,7 +231,7 @@ function showRegister() {
       const c = await api('confirm', { method: 'POST', body: { values } });
       const dl = el('dl'); for (const i of c.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value || '（未入力）'));
       root.replaceChildren(el('h1', {}, '登録内容の確認'), el('div', { className: 'card' }, dl),
-        el('button', { onclick: async () => { try { await api('register', { method: 'POST', body: { values, confirmed: true } }); showCard(await api('me')); } catch (e) { showError(e); } } }, '登録する'),
+        el('button', { onclick: async () => { try { await api('register', { method: 'POST', body: { values, confirmed: true } }); showCard(await api('me')); } catch (e) { if (e.code === 'friend_required') showFriendGate(e.addUrl, true); else showError(e); } } }, '登録する'),
         el('button', { className: 'sub', onclick: showRegister }, '戻る'));
     } catch (e) { showError(e); }
   }, '確認する'));
@@ -216,6 +277,6 @@ async function linkMode(link) {
     if (f.error) throw new Error(f.error);
     form = f; shop = f.shop;
     const me = await api('me');
-    if (me.registered) showCard(me); else if (me.withdrawn) showWithdrawn(); else showRegister();
+    if (me.registered) { const cp = findParam('coupon'); if (/^[0-9a-f]{32}$/.test(cp || '')) showCoupon(cp, me); else showCard(me); } else if (me.withdrawn) showWithdrawn(); else startRegistration();
   } catch (e) { root.replaceChildren(el('div', { className: 'card err' }, e.message)); }
 })();

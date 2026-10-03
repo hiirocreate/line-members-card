@@ -232,3 +232,23 @@ test('vault: 暗号化の往復・改ざん検知・用途別署名', async () =
   assert.deepEqual(v.verify('visit', t), { a: 1 });
   assert.equal(v.verify('other', t), null); assert.equal(v2.verify('visit', t), null);
 });
+
+test('ログイン状態の保持: 保持ありは30日・使うたびに延長 / なしは8時間で延長しない', async () => {
+  const { login, renewSession, verifySession, createAdmin } = await import('../src/auth.js');
+  const { createApp } = await import('../src/app.js');
+  const { OP } = await import('./helpers.js');
+  const app = createApp(null, { secret: 'z'.repeat(40) }), SECRET = 'z'.repeat(40);
+  createAdmin(app.store, OP, { role: 'OPERATOR', tenantId: null, email: 'k@x.jp', password: 'correct-horse-battery' });
+  const exp = (t) => JSON.parse(Buffer.from(t.split('.')[0], 'base64url').toString());
+  const short = login(app.store, { email: 'k@x.jp', password: 'correct-horse-battery', secret: SECRET }).token;
+  const long = login(app.store, { email: 'k@x.jp', password: 'correct-horse-battery', secret: SECRET, remember: true }).token;
+  assert.ok(exp(short).exp - Date.now() < 9 * 3600_000 && !exp(short).rm); assert.ok(exp(long).exp - Date.now() > 29 * 86400_000 && exp(long).rm === 1);
+  assert.equal(renewSession(app.store, short, SECRET), null); assert.equal(renewSession(app.store, long, SECRET), null); // まだ半分以上残っている
+  // 残りが半分を切ったら新しいトークン(30日)に差し替わる
+  const payload = Buffer.from(JSON.stringify({ ...exp(long), exp: Date.now() + 5 * 86400_000 })).toString('base64url');
+  const { createHmac } = await import('node:crypto');
+  const old = `${payload}.${createHmac('sha256', SECRET).update(payload).digest('base64url')}`;
+  const renewed = renewSession(app.store, old, SECRET);
+  assert.ok(renewed && exp(renewed).exp - Date.now() > 29 * 86400_000); assert.ok(verifySession(app.store, renewed, SECRET));
+  assert.equal(renewSession(app.store, old + 'x', SECRET), null); // 改ざん
+});

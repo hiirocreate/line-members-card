@@ -8,7 +8,12 @@ const TYPES = { TEXT: '1行テキスト', TEXTAREA: '複数行テキスト', NUM
 const CHOICE = ['SELECT', 'MULTI_SELECT', 'RADIO'];
 const VIS = { USER: 'ユーザーに表示', STAFF: '店舗スタッフのみ', ADMIN: '店舗管理者以上', OPERATOR: '運営管理者のみ' };
 const ST = { me: null, tenant: null, tab: 'form', fields: [], master: [], tenants: [] };
-const store = { get: () => { try { return sessionStorage.getItem('tok'); } catch { return null; } }, set: (v) => { try { v ? sessionStorage.setItem('tok', v) : sessionStorage.removeItem('tok'); } catch { /* 無効でも動作させる */ } } };
+// ログイン状態: 「保持する」を選んだときはこの端末のブラウザに保存(30日・使うたびに延長)。選ばないときは、タブを閉じるまで
+const store = {
+  get: () => { try { return localStorage.getItem('tok') || sessionStorage.getItem('tok'); } catch { return null; } },
+  set: (v, remember = false) => { try { localStorage.removeItem('tok'); sessionStorage.removeItem('tok'); if (v) (remember ? localStorage : sessionStorage).setItem('tok', v); } catch { /* 無効でも動作させる */ } },
+  remembered: () => { try { return !!localStorage.getItem('tok'); } catch { return false; } },
+};
 
 async function api(path, { method = 'GET', body, blob } = {}) {
   const q = ST.me?.role === 'OPERATOR' && ST.tenant ? `${path.includes('?') ? '&' : '?'}tenant=${encodeURIComponent(ST.tenant)}` : '';
@@ -56,8 +61,9 @@ function loginView() {
     err.className = 'ok'; err.textContent = 'LINEにコードを送りました(5分間有効)。届いたコードを入力して「ログイン」を押してください。'; lineCode.focus();
   });
   const lineBox = el('div', { style: 'display:none;margin-top:12px' }, btn('LINEにコードを送る', sendLine, 'pri'), lab('LINEに届いたコード', lineCode, '公式アカウントから届きます。届かない場合は、友だち追加とブロックの状態を確認してください。'));
-  const base = () => ({ email: email.value, password: pw.value });
-  const done = async (r) => { store.set(r.token); await boot(); };
+  const remember = el('input', { type: 'checkbox', checked: true, style: 'width:auto;margin:0' });
+  const base = () => ({ email: email.value, password: pw.value, remember: remember.checked });
+  const done = async (r) => { store.set(r.token, remember.checked); await boot(); };
   // パスキー: 毎回サーバから新しいチャレンジを受け取る (時間が経っても使える)
   const withPasskey = run(err, async () => {
     if (!passkeySupported()) throw new Error('このブラウザはパスキーに対応していません');
@@ -80,7 +86,7 @@ function loginView() {
   });
   passkeyBox.append(btn('パスキーでログイン(指紋・顔・画面ロック)', withPasskey, 'pri'), el('div', { className: 'hint' }, '認証アプリを使う場合は、上のコード欄に入力して「ログイン」を押してください。'));
   for (const i of [pw, code, lineCode]) i.addEventListener('keydown', (e) => e.key === 'Enter' && go());
-  root.replaceChildren(el('div', { className: 'login card' }, el('h2', {}, '管理画面ログイン'), lab('メールアドレス', email), lab('パスワード', pw), codeBox, err, passkeyBox, lineBox,
+  root.replaceChildren(el('div', { className: 'login card' }, el('h2', {}, '管理画面ログイン'), lab('メールアドレス', email), lab('パスワード', pw), el('label', { style: 'display:flex;align-items:center;gap:8px;margin:10px 0 0;cursor:pointer' }, remember, el('span', {}, 'このブラウザでログイン状態を保持する(30日)')), el('div', { className: 'hint' }, '共用のパソコンでは、チェックを外してください。'), codeBox, err, passkeyBox, lineBox,
     el('div', { className: 'row', style: 'margin-top:12px' }, btn('ログイン', go, 'pri')), el('p', { className: 'hint' }, 'パスワードを忘れた場合は、店舗管理者または運営に再設定リンクの発行を依頼してください。')));
 }
 function resetView(token) {
@@ -976,7 +982,7 @@ async function accountView() {
   const e1 = el('div', { className: 'err' }), o1 = el('div', { className: 'ok' }), e2 = el('div', { className: 'err' });
   const cur = el('input', { type: 'password', autocomplete: 'current-password' }), nw = el('input', { type: 'password', autocomplete: 'new-password' });
   const pwCard = el('div', { className: 'card' }, el('h2', {}, 'パスワードの変更'), lab('現在のパスワード', cur), lab('新しいパスワード(10文字以上)', nw), e1, o1,
-    el('div', { className: 'row', style: 'margin-top:8px' }, btn('変更する', run(e1, async () => { o1.textContent = ''; const r = await api('/security/password', { method: 'POST', body: { current: cur.value, next: nw.value } }); store.set(r.token); cur.value = nw.value = ''; o1.textContent = '変更しました(他の端末はログアウトされます)'; }), 'pri')));
+    el('div', { className: 'row', style: 'margin-top:8px' }, btn('変更する', run(e1, async () => { o1.textContent = ''; const r = await api('/security/password', { method: 'POST', body: { current: cur.value, next: nw.value } }); store.set(r.token, store.remembered()); cur.value = nw.value = ''; o1.textContent = '変更しました(他の端末はログアウトされます)'; }), 'pri')));
   const box = el('div');
   const pw = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'パスワード' }), code = el('input', { type: 'text', inputMode: 'numeric', placeholder: '6桁のコード' });
   if (sec.totp) {
@@ -1087,6 +1093,7 @@ async function render() {
 }
 async function boot() {
   ST.me = await api('/me');
+  if (ST.me.renew) store.set(ST.me.renew, true); // 保持中のログインは、使うたびに期限が延びる
   if (ST.me.role === 'OPERATOR') ST.tenants = (await api('/tenants')).tenants; else ST.tenant = ST.me.tenantId;
   render();
 }

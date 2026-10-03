@@ -6,7 +6,7 @@ import { audit } from './audit.js';
 import { creationOptions, verifyRegistration, requestOptions, verifyAssertion } from './webauthn.js';
 import { newSecret, verifyTotp, otpauthUri, newRecoveryCodes, hashRecovery } from './totp.js';
 
-const SESSION_TTL_MS = 8 * 3600_000;
+const SESSION_TTL_MS = 8 * 3600_000, REMEMBER_TTL_MS = 30 * 86400_000; // 「ログイン状態を保持」は30日(使っている間は自動で延長)
 const hash = (pw, salt) => scryptSync(pw, salt, 64);
 
 export function hashPassword(pw) {
@@ -61,8 +61,8 @@ export class LoginLimiter { // メール+IP単位で15分に5回まで失敗可
 }
 
 const sign = (payload, secret) => createHmac('sha256', secret).update(payload).digest('base64url');
-const issueSession = (a, secret) => {
-  const payload = Buffer.from(JSON.stringify({ sub: a.admin_id, ep: epochOf(a), exp: Date.now() + SESSION_TTL_MS })).toString('base64url');
+const issueSession = (a, secret, remember = false) => {
+  const payload = Buffer.from(JSON.stringify({ sub: a.admin_id, ep: epochOf(a), exp: Date.now() + (remember ? REMEMBER_TTL_MS : SESSION_TTL_MS), ...(remember ? { rm: 1 } : {}) })).toString('base64url');
   return `${payload}.${sign(payload, secret)}`;
 };
 const epochOf = (a) => Number(a.token_epoch) || 0; // 空欄(旧データ)は0
@@ -86,7 +86,7 @@ const passkeysOf = (store, adminId) => store.select('passkeys', (k) => k.admin_i
 // 戻り値: { token } | { requires2fa: true, methods: ['totp'|'passkey'], passkey?: {token, publicKey} }
 // 二段階認証は「認証アプリのコード/回復コード」か「パスキー(指紋・顔・画面ロック)」のどちらでも可。
 // webauthn: { rpId, origin } (パスキー使用時に必須。リクエストのホストから決める)
-export function login(store, { email, password, code, lineCode, assertion, challenge, secret, limiter, ip = '', vault, webauthn, lineAvailable }) {
+export function login(store, { email, password, code, lineCode, assertion, challenge, secret, remember = false, limiter, ip = '', vault, webauthn, lineAvailable }) {
   const e = normEmail(email), key = `${e}|${ip}`;
   limiter?.check(key);
   const a = store.find('admins', (x) => x.email === e);
@@ -116,7 +116,14 @@ export function login(store, { email, password, code, lineCode, assertion, chall
   }
   limiter?.ok(key);
   audit(store, { tenant_id: a.tenant_id, actor: { id: a.admin_id }, action: 'ADMIN_LOGIN', target: a.admin_id, detail: { mfa: how } });
-  return { token: issueSession(a, secret) };
+  return { token: issueSession(a, secret, remember === true) };
+}
+// 「ログイン状態を保持」のセッションは、残りが半分を切ったら新しいトークンに差し替える (使っている間はログインし直し不要)。保持なしのセッションは null
+export function renewSession(store, token, secret) {
+  if (!verifySession(store, token, secret)) return null;
+  const s = JSON.parse(Buffer.from(String(token).split('.')[0], 'base64url').toString());
+  if (!s.rm || s.exp - Date.now() > REMEMBER_TTL_MS / 2) return null;
+  return issueSession(getAdmin(store, s.sub), secret, true);
 }
 // 毎回 admins を引く: 無効化・ロール変更・パスワード変更/リセットが即時に反映される。tenantId は必ず DB の値を使う。
 export function verifySession(store, token, secret) {

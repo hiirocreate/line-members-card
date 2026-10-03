@@ -10,7 +10,7 @@ import { SheetsStore } from './sheetsStore.js';
 import { renderForm } from './render.js';
 import { ValidationError, AuthError, FriendRequiredError } from './sanitize.js';
 import { Forbidden, PERMS, can, require_ } from './permissions.js';
-import { login, verifySession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey, sendLineCode, startLineLink, readLineLink, completeLineLink, unlinkLine, lineLinked } from './auth.js';
+import { login, verifySession, renewSession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey, sendLineCode, startLineLink, readLineLink, completeLineLink, unlinkLine, lineLinked } from './auth.js';
 import { push, isFriend, friendAddUrl, botInfo } from './line.js';
 import { resolveLine, publicLine, setLine, testMessaging } from './settings.js';
 import { addMasterField, setBannedTerms, listMaster, getBannedTerms } from './master.js';
@@ -153,7 +153,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
   async function adminApi(req, res, url, path) {
     if (req.method === 'POST' && path === '/login') {
       const b = await readBody(req);
-      return send(res, 200, login(app.store, { email: b.email, password: b.password, code: b.code, lineCode: b.lineCode, lineAvailable, assertion: b.assertion, challenge: b.challenge, webauthn: waOf(req), secret: sessionSecret, limiter, ip: req.socket.remoteAddress, vault: app.vault }));
+      return send(res, 200, login(app.store, { email: b.email, password: b.password, code: b.code, lineCode: b.lineCode, lineAvailable, assertion: b.assertion, challenge: b.challenge, webauthn: waOf(req), secret: sessionSecret, remember: b.remember === true, limiter, ip: req.socket.remoteAddress, vault: app.vault }));
     }
     if (req.method === 'POST' && path === '/login/line-code') { // パスワード確認のうえ、連携済みのLINEへ6桁のコードを送る
       const b = await readBody(req);
@@ -185,7 +185,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
 
     if (path === '/me' && req.method === 'GET') {
       const t = actor.tenantId && app.store.find('tenants', (x) => x.tenant_id === actor.tenantId);
-      return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)), features: isOp || !actor.tenantId ? featureMap(app.store, null) : featureMap(app.store, actor.tenantId) });
+      return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)), renew: renewSession(app.store, bearer(req), sessionSecret), features: isOp || !actor.tenantId ? featureMap(app.store, null) : featureMap(app.store, actor.tenantId) });
     }
     if (isOp && path === '/tenants' && req.method === 'GET') return ok({ tenants: app.store.select('tenants').map(({ tenant_id, name, status }) => ({ tenant_id, name, status, features: featureMap(app.store, tenant_id) })) });
     if (path === '/admins' && req.method === 'GET') return ok({ admins: listAdmins(app.store, actor) });

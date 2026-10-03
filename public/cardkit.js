@@ -85,10 +85,13 @@ export const formatName = (name, order) => { const parts = String(name ?? '').tr
 // privacy: true のとき、氏名・来店情報を出さず、会員番号を伏せ、QRの代わりに「非表示」の枠を描く (人に画面を見られるとき用)
 export function drawCard(canvas, design, data, { logo = null, bg = null, qr = null, privacy = false } = {}) {
   canvas.width = CARD_W; canvas.height = CARD_H;
-  const ctx = canvas.getContext('2d'), font = FONTS[design.font] ?? FONTS.sans, tc = design.textColor, accent = design.accentColor;
+  // ランクにカード色が設定されていれば、背景(画像以外)をその色にする。文字色は背景に合わせて白/黒を自動で選ぶ
+  const rank = data.rank ?? null, recolor = !!(rank?.color1 && design.background.type !== 'image');
+  const bgCfg = recolor ? { ...design.background, type: 'gradient', color1: rank.color1, color2: rank.color2 || rank.color1, angle: design.background.angle ?? 135 } : design.background;
+  const ctx = canvas.getContext('2d'), font = FONTS[design.font] ?? FONTS.sans, tc = recolor ? contrast(rank.color1) : design.textColor, accent = design.accentColor;
   ctx.clearRect(0, 0, CARD_W, CARD_H);
   ctx.save(); roundRect(ctx, 0, 0, CARD_W, CARD_H, RADIUS[design.radius] ?? 56); ctx.clip();
-  drawBackground(ctx, design.background, { bg });
+  drawBackground(ctx, bgCfg, { bg });
   ctx.textBaseline = 'alphabetic'; ctx.fillStyle = tc;
 
   // ---- 上段: ロゴ と タイトル ----
@@ -103,6 +106,16 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
     if (pos === 'top-center' && logo && design.logo.imageId) spaced(ctx, design.title, CARD_W / 2, topBottom + 40, 5, 'center');
     else spaced(ctx, design.title, pos === 'top-left' && design.logo.imageId ? CARD_W - P : P, P + 30, 5, pos === 'top-left' && design.logo.imageId ? 'right' : 'left');
     ctx.globalAlpha = 1;
+  }
+
+  // ---- ランク: 右上に「★★★ 称号」 (★はランクが上がるごとに増える。ロゴが右上のときはその下) ----
+  if (rank) {
+    const ry = pos === 'top-right' && logo && design.logo.imageId ? topBottom + 46 : P + 30;
+    ctx.font = `700 30px ${font}`; ctx.fillStyle = tc; ctx.textAlign = 'right';
+    const tw = ctx.measureText(rank.title).width; ctx.fillText(rank.title, CARD_W - P, ry);
+    ctx.fillStyle = rank.starColor; ctx.font = `700 34px ${font}`; ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 3;
+    ctx.fillText('★'.repeat(Math.min(rank.stars, 10)), CARD_W - P - tw - 14, ry + 2);
+    ctx.shadowBlur = 0; ctx.textAlign = 'left'; ctx.fillStyle = tc;
   }
 
   // ---- 中段: 店舗名 + アクセント線 ----

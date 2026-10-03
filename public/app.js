@@ -57,7 +57,7 @@ function openLine(url) {
 const fmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const fmtDate = (iso) => (iso && !Number.isNaN(Date.parse(iso)) ? fmt.format(new Date(iso)) : null);
 const visitText = (me) => (me.last_visit_at ? `最終来店: ${fmtDate(me.last_visit_at)}(来店 ${me.visit_count}回)` : '最終来店: まだ来店記録がありません');
-const cardData = (me) => ({ shop: me.shop, name: me.card_data?.name ?? '', nameParts: me.card_data?.parts ?? null, memberNumber: me.member_number, registeredAt: me.card_data?.registered_at ?? me.registered_at, lastVisitAt: me.last_visit_at, visitCount: me.visit_count });
+const cardData = (me) => ({ shop: me.shop, name: me.card_data?.name ?? '', nameParts: me.card_data?.parts ?? null, rank: me.rank ?? null, memberNumber: me.member_number, registeredAt: me.card_data?.registered_at ?? me.registered_at, lastVisitAt: me.last_visit_at, visitCount: me.visit_count });
 const assetImage = (id) => (id ? loadImage(`/t/${T}/asset/${id}`).catch(() => null) : Promise.resolve(null)); // 画像が読めなくてもカードは表示する
 
 // 会員証QR: 署名付き・5分有効。期限の1分前に自動更新 (スクリーンショットの使い回し防止)
@@ -76,7 +76,7 @@ function showCard(me, opts = {}) {
   const dl = el('dl'); for (const i of me.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value)); infoCard.append(dl);
   const toggle = el('button', { className: 'chip' }, '');
   const paint = () => drawCard(canvas, design, cardData(cur), { logo, bg, qr: design.qr === 'inside' && !privacy ? qrCanvas : null, privacy });
-  const renderVisit = () => { visit.textContent = privacy ? '最終来店: ••••' : visitText(cur); };
+  const renderVisit = () => { visit.textContent = privacy ? '最終来店: ••••' : visitText(cur) + (cur.rank?.next ? ` / ${cur.rank.next.title}まであと${cur.rank.next.remaining}回` : ''); };
 
   async function refreshQr() {
     if (privacy) return; // 隠している間は、QRを取得も表示もしない

@@ -114,11 +114,11 @@ gcloud secrets add-iam-policy-binding cron-secret \
   --member="serviceAccount:$(gcloud projects describe $(gcloud config get-value project) --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
   --role=roles/secretmanager.secretAccessor
 # 2) Cloud Run に渡して再デプロイ (§3 のデプロイコマンドの --set-secrets に ,CRON_SECRET=cron-secret:latest を追加)
-# 3) 毎朝9時(日本時間)に呼び出す
+# 3) 10分おきに呼び出す (誕生日配信は日本時間の朝9時以降に1日1回、予約メッセージは指定時刻に送られる)
 gcloud services enable cloudscheduler.googleapis.com
 gcloud scheduler jobs create http birthday-daily --location=asia-northeast1 \
-  --schedule="0 9 * * *" --time-zone="Asia/Tokyo" --http-method=POST \
-  --uri="https://<サービスURL>/api/cron/birthday" \
+  --schedule="*/10 * * * *" --time-zone="Asia/Tokyo" --http-method=POST \
+  --uri="https://<サービスURL>/api/cron/run" \
   --headers="Authorization=Bearer $(gcloud secrets versions access latest --secret=cron-secret)"
 ```
 `CRON_SECRET` が未設定のときは、このエンドポイントは常に 401 を返す。
@@ -132,3 +132,8 @@ gcloud scheduler jobs create http birthday-daily --location=asia-northeast1 \
 - 「5回目の来店」「5回ごと」などのルールを予約。来店が記録された直後(QR読み取り・手動記録)に、条件を満たした会員へ自動送信 (クーポン添付・有効日数・開始/終了日の指定可)。
 - 同じ会員・同じ来店回数には1回だけ。LINE配信に同意していない/該当の内容を断っている会員には送らない。送信に失敗した場合は記録のみで再送しない(一覧に失敗数が出る)。
 - メッセージの `{名前}` `{回数}` は会員の名前・来店回数に置き換わる。
+
+## 16. 予約メッセージ(定期) / 会員ランク / 店舗ごとの機能制限
+- **予約メッセージ(定期)**: 「予約メッセージ」タブ。1回だけ/毎日/毎週/毎月と送信時刻(日本時間)、配信先の絞り込み、クーポン添付を設定。時刻になると自動送信(同じ日に二重送信しない)。自動実行には §13 の Cloud Scheduler(`/api/cron/run` を10分おき)が必要。
+- **会員ランク**: 「会員ランク」タブ。来店回数ごとに称号・★の色・カードの色を設定(最大10ランク、ランクが上がるごとに★が1つ増える)。会員証の右上に「★★ 称号」が出て、カード色を設定したランクは背景(画像以外)がその色になる。会員画面には「次のランクまであと○回」も出る。
+- **店舗ごとの機能制限**: 運営 → 「店舗」の「機能設定」。会員証デザイン/来店スキャン/メッセージ配信/予約メッセージ/誕生日配信/来店回数配信/クーポン/会員ランク を店舗ごとにオフにできる。オフにした機能は、その店舗の管理者・スタッフに表示されず、APIも403になる(運営は常に使える)。自動配信もその店舗では止まる。

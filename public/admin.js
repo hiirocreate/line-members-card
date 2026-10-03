@@ -37,6 +37,7 @@ const passkeyError = (e) => (e?.name === 'NotAllowedError' ? new Error('パス�
 
 const errText = (e) => [e.message, ...(e.details ?? [])].join('\n');
 const can = (p) => ST.me?.perms.includes(p);
+const featOn = (k) => ST.me?.role === 'OPERATOR' || ST.me?.features?.[k] !== false; // 運営が店舗ごとに機能をオフにできる
 const btn = (text, onclick, cls = '') => el('button', { className: `btn ${cls}`, type: 'button', onclick }, text);
 const lab = (text, node, hint) => el('div', {}, el('label', { className: 'lb' }, text), node, hint ? el('div', { className: 'hint' }, hint) : null);
 const run = (box, fn) => async (...a) => { try { box && (box.textContent = ''); await fn(...a); } catch (e) { if (box) { box.className = 'err'; box.textContent = errText(e); } else alert(errText(e)); } };
@@ -96,9 +97,9 @@ function resetView(token) {
 }
 
 // ---------- 共通レイアウト ----------
-const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
+const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['schedule', '予約メッセージ'], ['rank', '会員ランク'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
-  const tabs = [...TABS.filter(([k]) => (k === 'messages' || k === 'birthday' || k === 'visitrules' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
+  const tabs = [...TABS.filter(([k]) => featOn(k) && (['messages', 'birthday', 'visitrules', 'schedule'].includes(k) ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' || k === 'rank' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));
   if (ST.me.role === 'OPERATOR') {
     const sel = el('select', { style: 'width:auto', onchange: () => { if (formDirty() && !confirm('保存していない変更があります。破棄して店舗を切り替えますか?')) { sel.value = ST.tenant ?? ''; return; } discardFormDraft(); ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
@@ -632,7 +633,7 @@ async function scanView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   const status = el('div', { style: 'font-size:16px;min-height:24px;margin:8px 0' }), video = el('video', { playsInline: true, muted: true, style: 'width:100%;max-width:420px;border-radius:10px;background:#000;display:none' });
   const list = el('div'), manual = el('input', { type: 'text', placeholder: '会員番号 (例: 000001)' });
-  const { coupons: activeCoupons } = await api('/coupons/active');
+  const { coupons: activeCoupons } = featOn('coupons') ? await api('/coupons/active') : { coupons: [] };
   const cSel = el('select', {}, activeCoupons.map((c) => el('option', { value: c.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`))), cNum = el('input', { type: 'text', placeholder: '会員番号 (例: 000001)' });
   const couponManual = activeCoupons.length ? el('div', {}, el('div', { className: 'hint' }, '会員のQRが読み取れないときに使います。会員の画面で、クーポンの内容を確認してから、押してください。'),
     el('div', { className: 'row', style: 'margin-top:8px' }, cSel, cNum, btn('使用済みにする', run(status, async () => {
@@ -723,6 +724,99 @@ async function couponsView() {
           btn(c.status === 'ARCHIVED' ? '再開' : '終了', run(err, async () => { await api(`/coupons/${c.coupon_id}/${c.status === 'ARCHIVED' ? 'restore' : 'archive'}`, { method: 'POST' }); render(); }), 'sm'))))))) : el('div', { className: 'hint' }, 'クーポンはまだありません。'), err));
 }
 
+// ---------- 予約メッセージ(定期) ----------
+const KIND_LABEL = { ONCE: '1回だけ', DAILY: '毎日', WEEKLY: '毎週', MONTHLY: '毎月' }, DOW = ['日', '月', '火', '水', '木', '金', '土'];
+const whenText = (s) => `${{ ONCE: `${dayText(s.run_date)} `, DAILY: '毎日 ', WEEKLY: `毎週${DOW[Number(s.weekday)]}曜 `, MONTHLY: Number(s.day_of_month) === 0 ? '毎月末 ' : `毎月${s.day_of_month}日 ` }[s.kind]}${s.time}`;
+function scheduleDialog(s, offerable, done) {
+  const err = el('div', { className: 'err' });
+  const state = { logic: s?.where?.logic ?? 'AND', conds: (s?.where?.conditions ?? []).map((c) => ({ field: c.field, op: c.op, value: c.value ?? '' })) };
+  const cb = condBuilder(state);
+  const name = el('input', { type: 'text', value: s?.name ?? '', maxLength: 40, placeholder: '例: 毎週金曜のお知らせ' });
+  const kind = el('select', { onchange: () => sync() }, Object.entries(KIND_LABEL).map(([k, t]) => el('option', { value: k, selected: k === (s?.kind ?? 'WEEKLY') }, t)));
+  const date = el('input', { type: 'date', value: s?.run_date ?? '' });
+  const dow = el('select', {}, DOW.map((t, i) => el('option', { value: i, selected: i === Number(s?.weekday ?? 5) }, `${t}曜日`)));
+  const dom = el('select', {}, [...Array.from({ length: 28 }, (_, i) => [i + 1, `${i + 1}日`]), [0, '月末']].map(([v, t]) => el('option', { value: v, selected: v === Number(s?.day_of_month ?? 1) }, t)));
+  const time = el('input', { type: 'time', value: s?.time ?? '12:00', style: 'max-width:130px' });
+  const slot = el('div', { className: 'row' });
+  const sync = () => { slot.replaceChildren(...{ ONCE: [date], DAILY: [], WEEKLY: [dow], MONTHLY: [dom] }[kind.value], time); };
+  sync();
+  const text = el('textarea', { maxLength: 5000, style: 'min-height:90px', value: s?.message_text ?? '' });
+  const sel = el('select', {}, el('option', { value: '' }, '添付しない'), offerable.map((c) => el('option', { value: c.coupon_id, selected: c.coupon_id === s?.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`)));
+  if (s?.coupon_id && !offerable.some((c) => c.coupon_id === s.coupon_id)) sel.append(el('option', { value: s.coupon_id, selected: true }, '(設定済みのクーポン: 現在は無効または期限切れ)'));
+  const days = el('input', { type: 'number', min: 1, max: 365, value: s?.coupon_days ?? '', placeholder: '例: 30', style: 'max-width:140px' });
+  const save = run(err, async () => {
+    const body = { name: name.value, kind: kind.value, run_date: date.value, weekday: dow.value, day_of_month: dom.value, time: time.value, message_text: text.value, coupon_id: sel.value, coupon_days: days.value, where: cb.where() ?? null };
+    if (s) await api(`/schedules/${s.schedule_id}`, { method: 'PUT', body }); else await api('/schedules', { method: 'POST', body });
+    d.close(); done();
+  });
+  const couponOk = can('COUPON_MANAGE') && featOn('coupons');
+  const d = el('dialog', {}, el('h2', {}, s ? '予約を編集' : '予約メッセージを作成'), lab('予約名(必須)', name), lab('くり返し・送る日時', el('div', {}, kind, slot), '日本時間です。時刻になると自動で送ります(最大10分ほど遅れることがあります)。'),
+    lab('メッセージ', text), couponOk ? lab('クーポンを添付(任意)', sel) : null, couponOk ? lab('クーポンの有効日数(届いてから何日間・任意)', days) : null,
+    lab('配信先の絞り込み(任意)', cb.node, '空欄なら、LINE配信に同意した有効な会員全員に送ります。'), err,
+    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+async function scheduleView() {
+  if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
+  ST.fields = (await api('/form')).fields;
+  const { schedules } = await api('/schedules'), err = el('div', { className: 'err' });
+  const { coupons: offerable } = (can('COUPON_MANAGE') && featOn('coupons')) ? await api('/coupons/active') : { coupons: [] };
+  const result = (s) => { const r = s.last_result; return !r ? '-' : r.error ? `エラー: ${r.error}` : `${(r.at || '').replace('T', ' ').slice(0, 16)} 送信${r.sent}人${r.failed ? `(失敗${r.failed})` : ''}`; };
+  layout(el('div', { className: 'card' }, el('h2', {}, '予約メッセージ(定期)'),
+    el('div', { className: 'hint', style: 'margin-bottom:10px' }, '日時を決めて、メッセージ(とクーポン)を自動で配信します。1回だけ・毎日・毎週・毎月から選べます。送るのは、LINE配信に同意した有効な会員だけです。自動実行には、Cloud Scheduler の設定が必要です(手順書を参照)。'),
+    el('div', { className: 'row', style: 'margin-bottom:10px' }, btn('＋ 予約を作成', () => scheduleDialog(null, offerable, render), 'pri')),
+    schedules.length ? el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, ['予約名', '送る日時', '内容', '前回の結果', '状態', ''].map((h) => el('th', {}, h))),
+      schedules.map((s) => el('tr', {}, el('td', {}, s.name), el('td', {}, whenText(s)), el('td', {}, [s.message_text ? s.message_text.slice(0, 20) : '', s.coupon_id ? '[クーポン]' : ''].filter(Boolean).join(' ')), el('td', {}, result(s)),
+        el('td', {}, el('span', { className: `badge ${s.enabled ? 'int' : ''}` }, s.enabled ? '有効' : '停止中')),
+        el('td', {}, el('div', { className: 'row' }, btn('編集', () => scheduleDialog(s, offerable, render), 'sm'),
+          btn(s.enabled ? '停止' : '再開', run(err, async () => { await api(`/schedules/${s.schedule_id}`, { method: 'PUT', body: { enabled: !s.enabled } }); render(); }), 'sm'),
+          btn('今すぐ送る', run(err, async () => { if (!confirm(`「${s.name}」を、今すぐ配信します。取り消しはできません。よろしいですか？`)) return; const r = await api(`/schedules/${s.schedule_id}/run`, { method: 'POST' }); alert(r.error ? `エラー: ${r.error}` : `送信 ${r.sent}人 / 失敗 ${r.failed}人`); render(); }), 'sm'),
+          btn('削除', run(err, async () => { if (!confirm(`予約「${s.name}」を削除します。よろしいですか？`)) return; await api(`/schedules/${s.schedule_id}`, { method: 'DELETE' }); render(); }), 'sm'))))))) : el('div', { className: 'hint' }, '予約はまだありません。'), err));
+}
+
+// ---------- 会員ランク ----------
+async function rankView() {
+  if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
+  const cfg = await api('/ranks'), err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' });
+  const DEFAULTS = [['レギュラー', 0, '#cd7f32'], ['シルバー', 5, '#b0b7c3'], ['ゴールド', 15, '#f5b301'], ['プラチナ', 30, '#7fd3e6']];
+  const st = { enabled: cfg.enabled, ranks: structuredClone(cfg.ranks) };
+  const list = el('div');
+  const draw = () => list.replaceChildren(...st.ranks.map((r, i) => {
+    const t = el('input', { type: 'text', value: r.title, maxLength: 12, placeholder: '称号', style: 'width:110px;flex:none;padding:5px 8px', oninput: () => { r.title = t.value; sw(); } });
+    const n = el('input', { type: 'number', min: 0, value: r.min_visits, disabled: i === 0, style: 'width:70px;flex:none;padding:5px 8px', oninput: () => { r.min_visits = Number(n.value); } });
+    const sc = el('input', { type: 'color', value: r.star_color, title: '☆の色', style: 'width:34px;height:28px;padding:0;flex:none;border:1px solid #cfd4dc;border-radius:6px;background:none', oninput: () => { r.star_color = sc.value; sw(); } });
+    const on = el('input', { type: 'checkbox', checked: !!r.card_color1, style: 'width:auto;margin:0', title: 'このランクのカード色を変える', onchange: () => { if (on.checked) { r.card_color1 = c1.value; r.card_color2 = c2.value; } else { r.card_color1 = ''; r.card_color2 = ''; } c1.disabled = c2.disabled = !on.checked; sw(); } });
+    const c1 = el('input', { type: 'color', value: r.card_color1 || '#222222', disabled: !r.card_color1, title: 'カードの色1', style: 'width:34px;height:28px;padding:0;flex:none;border:1px solid #cfd4dc;border-radius:6px;background:none', oninput: () => { r.card_color1 = c1.value; sw(); } });
+    const c2 = el('input', { type: 'color', value: r.card_color2 || r.card_color1 || '#444444', disabled: !r.card_color1, title: 'カードの色2', style: 'width:34px;height:28px;padding:0;flex:none;border:1px solid #cfd4dc;border-radius:6px;background:none', oninput: () => { r.card_color2 = c2.value; sw(); } });
+    const swatch = el('span', { style: 'display:inline-block;min-width:96px;padding:3px 8px;border-radius:6px;font-size:13px;line-height:1.3;border:1px solid #cfd4dc;white-space:nowrap' });
+    const sw = () => {
+      swatch.style.background = r.card_color1 ? `linear-gradient(135deg,${r.card_color1},${r.card_color2 || r.card_color1})` : '#f1f3f6';
+      swatch.style.color = r.card_color1 ? '#fff' : '#333'; swatch.replaceChildren(el('span', { style: `color:${r.star_color};text-shadow:0 0 1px rgba(0,0,0,.5)` }, '★'.repeat(i + 1)), ` ${r.title}`);
+    };
+    sw();
+    return el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0;border-top:1px solid #eceff3' }, el('b', { style: 'width:18px' }, String(i + 1)), t, n, el('span', { className: 'hint' }, '回以上'), el('span', { className: 'hint' }, '☆'), sc, el('label', { className: 'hint', style: 'display:inline-flex;align-items:center;gap:3px' }, on, 'カード色'), c1, c2, swatch,
+      i === 0 ? null : btn('×', () => { st.ranks.splice(i, 1); draw(); }, 'sm'));
+  }));
+  draw();
+  const enabled = el('input', { type: 'checkbox', checked: st.enabled, style: 'width:auto;margin:0', onchange: () => { st.enabled = enabled.checked; } });
+  const add = () => { if (st.ranks.length >= 10) return; const last = st.ranks.at(-1); st.ranks.push({ title: `ランク${st.ranks.length + 1}`, min_visits: (last?.min_visits ?? 0) + 10, star_color: '#f5b301', card_color1: '', card_color2: '' }); draw(); };
+  const save = run(err, async () => { ok.textContent = ''; const r = await api('/ranks', { method: 'PUT', body: { enabled: st.enabled, ranks: st.ranks.map((x) => ({ ...x, min_visits: Number(x.min_visits) })) } }); st.ranks = structuredClone(r.ranks); draw(); ok.textContent = '保存しました'; });
+  layout(el('div', { className: 'card' }, el('h2', {}, '会員ランク'),
+    el('div', { className: 'hint', style: 'margin-bottom:8px' }, '来店回数に応じて、会員証に称号と★(ランクが上がるごとに1つ増える)が出ます。ランクごとに★の色と、カードの色も変えられます(背景が画像のカードは色が変わりません)。'),
+    el('label', { style: 'display:inline-flex;align-items:center;gap:8px;margin:4px 0 8px;cursor:pointer' }, el('span', { style: 'display:inline-flex' }, enabled), el('b', {}, '会員ランクを有効にする')),
+    list, el('div', { className: 'row', style: 'margin-top:8px' }, btn('＋ ランクを追加', add, 'sm'), btn('初期値に戻す', () => { st.ranks = DEFAULTS.map(([title, min_visits, star_color]) => ({ title, min_visits, star_color, card_color1: '', card_color2: '' })); draw(); }, 'sm'), el('span', { className: 'sp' }), btn('保存', save, 'pri')), err, ok));
+}
+
+// ---------- 運営: 店舗ごとの機能設定 ----------
+async function featuresDialog(t) {
+  const { features, labels } = await api(`/tenants/${t.tenant_id}/features`), err = el('div', { className: 'err' });
+  const boxes = Object.entries(labels).map(([k, label]) => { const i = el('input', { type: 'checkbox', checked: features[k], style: 'width:auto;margin:0' }); return [k, i, el('label', { style: 'display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer' }, i, label)]; });
+  const save = run(err, async () => { await api(`/tenants/${t.tenant_id}/features`, { method: 'PUT', body: Object.fromEntries(boxes.map(([k, i]) => [k, i.checked])) }); d.close(); render(); });
+  const d = el('dialog', {}, el('h2', {}, `${t.name} の機能`), el('div', { className: 'hint', style: 'margin-bottom:8px' }, 'オフにした機能は、この店舗の管理者・スタッフの画面に表示されず、使えなくなります(運営は常に使えます)。'), ...boxes.map((b) => b[2]), err,
+    el('div', { className: 'row', style: 'margin-top:12px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+
 // ---------- 来店回数配信 ----------
 const RULE_STATUS = { SENT: '送信', FAILED: '失敗', SKIPPED: '未送信' };
 function ruleDialog(r, offerable, done) {
@@ -742,7 +836,7 @@ function ruleDialog(r, offerable, done) {
   });
   const d = el('dialog', {}, el('h2', {}, r ? '来店回数ルールを編集' : '来店回数ルールを作成'), lab('ルール名(必須)', name), lab('何回目の来店で送るか', visits, '来店が記録された(QR読み取り・手動記録)ときに、来店回数がこの数になった会員へ送ります。'), lab('くり返し', repeat),
     lab('メッセージ', text, '{名前} と {回数} は、会員の名前と来店回数に置き換わります。空欄にするとクーポンだけを送ります。'),
-    can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', sel) : null, can('COUPON_MANAGE') ? lab('クーポンの有効日数(届いてから何日間・任意)', days) : null,
+    (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンを添付(任意)', sel) : null, (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンの有効日数(届いてから何日間・任意)', days) : null,
     lab('いつから(任意)', from, '予約: この日から有効になります。'), lab('いつまで(任意)', until, 'この日を過ぎると送りません(日本時間)。'), err,
     el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
@@ -750,7 +844,7 @@ function ruleDialog(r, offerable, done) {
 async function visitRulesView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   const { rules } = await api('/visit-rules'), err = el('div', { className: 'err' });
-  const { coupons: offerable } = can('COUPON_MANAGE') ? await api('/coupons/active') : { coupons: [] };
+  const { coupons: offerable } = (can('COUPON_MANAGE') && featOn('coupons')) ? await api('/coupons/active') : { coupons: [] };
   layout(el('div', { className: 'card' }, el('h2', {}, '来店回数でメッセージ・クーポンを送る'),
     el('div', { className: 'hint', style: 'margin-bottom:10px' }, '「5回目の来店」などの条件を、あらかじめ予約しておきます。来店が記録された直後に、条件を満たした会員へ自動で送ります。同じ会員に同じ来店回数で重複して送ることはありません。送るのは、LINE配信に同意した会員だけです。'),
     el('div', { className: 'row', style: 'margin-bottom:10px' }, btn('＋ ルールを作成', () => ruleDialog(null, offerable, render), 'pri')),
@@ -767,7 +861,7 @@ async function visitRulesView() {
 async function birthdayView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   const cfg = await api('/birthday');
-  const { coupons: offerable } = can('COUPON_MANAGE') ? await api('/coupons/active') : { coupons: [] };
+  const { coupons: offerable } = (can('COUPON_MANAGE') && featOn('coupons')) ? await api('/coupons/active') : { coupons: [] };
   const err = el('div', { className: 'err' }), info = el('div', { className: 'hint', style: 'font-size:14px;margin:8px 0' });
   const enabled = el('input', { type: 'checkbox', checked: cfg.enabled, style: 'width:auto;margin:0' }), days = el('input', { type: 'number', min: 0, max: 60, value: cfg.days_before });
   const text = el('textarea', { maxLength: 1000, style: 'min-height:120px', value: cfg.message_text });
@@ -790,8 +884,8 @@ async function birthdayView() {
     el('label', { style: 'display:inline-flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer' }, el('span', { style: 'display:inline-flex' }, enabled), el('b', {}, '誕生日配信を有効にする(毎日自動で実行)')),
     lab('誕生日の何日前から送るか', days, '0=誕生日当日。例: 7 → 誕生日の7日前〜当日に入った会員へ、その日のうちに送ります。'),
     lab('メッセージ', text, '{名前} は会員の名前に置き換わります。空欄にするとクーポンだけを送ります。'),
-    can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', sel) : null,
-    can('COUPON_MANAGE') ? lab('クーポンの有効日数(配信から何日間)', cdays, '例: 30 → 受け取ってから30日間使えます。空欄のときは、クーポン自体の設定(有効期限など)に従います。クーポンに有効期限がある場合は、早い方が優先されます。') : null,
+    (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンを添付(任意)', sel) : null,
+    (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンの有効日数(配信から何日間)', cdays, '例: 30 → 受け取ってから30日間使えます。空欄のときは、クーポン自体の設定(有効期限など)に従います。クーポンに有効期限がある場合は、早い方が優先されます。') : null,
     info, err, el('div', { className: 'row' }, btn('保存', save, 'pri'), btn('今すぐ実行', runNow))),
     el('div', { className: 'card' }, el('h2', {}, '前回の実行'), lr ? el('div', {}, `${(cfg.last_run_at || '').replace('T', ' ').slice(0, 16)} UTC — ${lr.error ? `エラー: ${lr.error}` : `送信 ${lr.sent}人 / 失敗 ${lr.failed}人 / クーポン配布 ${lr.granted}人${lr.deferred ? ` / 持ち越し ${lr.deferred}人` : ''}`}`) : el('div', { className: 'hint' }, 'まだ実行されていません。'))));
 }
@@ -801,7 +895,7 @@ async function messagesView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   ST.fields = (await api('/form')).fields;
   const { messages } = await api('/messages');
-  const { coupons: offerable } = can('COUPON_MANAGE') ? await api('/coupons/active') : { coupons: [] };
+  const { coupons: offerable } = (can('COUPON_MANAGE') && featOn('coupons')) ? await api('/coupons/active') : { coupons: [] };
   const cb = condBuilder(msgState);
   const couponSel = el('select', {}, el('option', { value: '' }, '添付しない'), offerable.map((c) => el('option', { value: c.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`)));
   const text = el('textarea', { maxLength: 5000, style: 'min-height:140px', placeholder: '配信するメッセージ(テキスト)' });
@@ -821,8 +915,8 @@ async function messagesView() {
   }));
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, 'LINEメッセージ配信'),
     el('div', { className: 'hint' }, '配信できるのは、有効な会員のうちLINE配信に同意した会員だけです(退会済み・未同意の会員には送られません)。送信にはLINE連携タブでチャネルアクセストークンの登録が必要です。'),
-    lab('メッセージ', text), can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', couponSel, offerable.length ? 'メッセージの下に、クーポンのカード(「クーポンを使う」ボタン付き)が付きます。届いた会員にだけ配布されます。' : '有効なクーポンがありません。「クーポン」タブで作成してください。') : null,
-    can('COUPON_MANAGE') ? lab('クーポンの有効日数(配信から何日間・任意)', mdays, '例: 30 → 届いてから30日間使えます。空欄のときは、クーポン自体の設定に従います。') : null, el('h2', { style: 'margin-top:16px' }, '配信先の絞り込み(任意)'), cb.node, count, err, el('div', { className: 'row' }, preview, sendBtn)),
+    lab('メッセージ', text), (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンを添付(任意)', couponSel, offerable.length ? 'メッセージの下に、クーポンのカード(「クーポンを使う」ボタン付き)が付きます。届いた会員にだけ配布されます。' : '有効なクーポンがありません。「クーポン」タブで作成してください。') : null,
+    (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンの有効日数(配信から何日間・任意)', mdays, '例: 30 → 届いてから30日間使えます。空欄のときは、クーポン自体の設定に従います。') : null, el('h2', { style: 'margin-top:16px' }, '配信先の絞り込み(任意)'), cb.node, count, err, el('div', { className: 'row' }, preview, sendBtn)),
     el('div', { className: 'card' }, el('h2', {}, '配信履歴'), el('table', {}, el('tr', {}, ['日時', '内容', '対象', '成功', '失敗', '状態'].map((h) => el('th', {}, h))),
       messages.map((m) => el('tr', {}, [m.created_at.replace('T', ' ').slice(0, 16), m.text.slice(0, 40), m.audience, m.sent, m.failed, m.status].map((x) => el('td', {}, String(x)))))))));
 }
@@ -942,7 +1036,7 @@ async function opsView() {
   const mp = el('input', { type: 'text', placeholder: '利用目的(任意)' }), mo = el('textarea', { placeholder: '選択式の場合: 選択肢を1行に1つ' });
   const bt = el('textarea', { value: terms.join('\n'), style: 'min-height:140px' });
   layout(el('div', {},
-    el('div', { className: 'card' }, el('h2', {}, '店舗'), tenants.map((t) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, t.name), el('span', { className: 'hint' }, t.tenant_id)))),
+    el('div', { className: 'card' }, el('h2', {}, '店舗'), tenants.map((t) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, t.name), el('span', { className: 'hint' }, t.tenant_id), el('span', { className: 'hint' }, Object.values(t.features).some((v) => !v) ? `制限あり(${Object.values(t.features).filter((v) => !v).length}機能オフ)` : ''), btn('機能設定', () => featuresDialog(t), 'sm')))),
       el('div', { className: 'row' }, tid, tname, btn('店舗を作成', run(e1, async () => { const r = await api('/tenants', { method: 'POST', body: { tenantId: tid.value.trim(), name: tname.value.trim() } }); infoDialog('店舗を作成しました', [`登録token: ${r.registrationToken}`]); render(); }), 'pri')), e1),
     el('div', { className: 'card' }, el('h2', {}, '管理者アカウント'), adminsCard(admins, e2, render),
       el('div', { className: 'row', style: 'margin-top:12px' }, aemail, apw, arole, atenant, btn('作成', run(e2, async () => { await api('/admins', { method: 'POST', body: { email: aemail.value, password: apw.value, role: arole.value, tenantId: arole.value === 'OPERATOR' ? undefined : atenant.value } }); render(); }), 'pri')), e2),
@@ -957,7 +1051,7 @@ async function opsView() {
 }
 
 // ---------- ルーティング ----------
-const VIEWS = { form: formView, card: cardView, coupons: couponsView, members: membersView, scan: scanView, messages: messagesView, birthday: birthdayView, visitrules: visitRulesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
+const VIEWS = { form: formView, card: cardView, coupons: couponsView, members: membersView, scan: scanView, messages: messagesView, birthday: birthdayView, visitrules: visitRulesView, schedule: scheduleView, rank: rankView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
 // 描画は1つずつ直列に実行し、実行中に再要求があれば終了後にもう一度だけ描き直す。
 // (画面を素早く切り替えたとき、遅れて終わった前の画面が今の画面を上書きしないようにする)
 let rendering = false, renderAgain = false, pollTimer = null;

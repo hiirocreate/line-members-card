@@ -8,7 +8,7 @@ import { SheetsStore } from './sheetsStore.js';
 import { renderForm } from './render.js';
 import { ValidationError, AuthError } from './sanitize.js';
 import { Forbidden, PERMS, can, require_ } from './permissions.js';
-import { login, verifySession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins } from './auth.js';
+import { login, verifySession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey } from './auth.js';
 import { resolveLine, publicLine, setLine, testMessaging } from './settings.js';
 import { addMasterField, setBannedTerms, listMaster, getBannedTerms } from './master.js';
 import { listAudit } from './audit.js';
@@ -24,10 +24,18 @@ const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.
   "connect-src 'self' https://*.line.me https://*.line-apps.com https://*.line-scdn.net; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'none'";
 
 export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANNEL_ID, liffId = process.env.LIFF_ID,
-  sessionSecret = process.env.SESSION_SECRET, verifyLine = verifyLineIdToken, fetchImpl = app.fetchImpl ?? fetch } = {}) {
+  sessionSecret = process.env.SESSION_SECRET, publicOrigin = process.env.PUBLIC_ORIGIN, verifyLine = verifyLineIdToken, fetchImpl = app.fetchImpl ?? fetch } = {}) {
   const defaults = { liffId, loginChannelId: lineChannelId }; // 店舗が個別設定していない場合の既定値
   if (!sessionSecret || sessionSecret.length < 32) throw new Error('SESSION_SECRET (32文字以上) が必要です');
   const limiter = new LoginLimiter();
+  // パスキーの rpId / origin。PUBLIC_ORIGIN があればそれに固定、無ければアクセスされたホストから決める。
+  // (rpId が違うと別のパスキーとして扱われるため、管理画面は常に同じURLで開くこと)
+  const waOf = (req) => {
+    if (publicOrigin) { const u = new URL(publicOrigin); return { origin: u.origin, rpId: u.hostname }; }
+    const host = String(req.headers.host ?? '');
+    const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
+    return { origin: `${local ? 'http' : 'https'}://${host}`, rpId: host.replace(/:\d+$/, '') };
+  };
   // 応答は即送らず保留し、永続化(flush)が終わってから返す
   const pending = new WeakMap();
   const send = (res, code, body, type = 'application/json; charset=utf-8', extra = {}) => pending.set(res, () => {
@@ -82,7 +90,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
   async function adminApi(req, res, url, path) {
     if (req.method === 'POST' && path === '/login') {
       const b = await readBody(req);
-      return send(res, 200, login(app.store, { email: b.email, password: b.password, code: b.code, secret: sessionSecret, limiter, ip: req.socket.remoteAddress, vault: app.vault }));
+      return send(res, 200, login(app.store, { email: b.email, password: b.password, code: b.code, assertion: b.assertion, challenge: b.challenge, webauthn: waOf(req), secret: sessionSecret, limiter, ip: req.socket.remoteAddress, vault: app.vault }));
     }
     if (req.method === 'POST' && path === '/password-reset/consume') { // 再設定リンク(1回限り)からの新パスワード設定
       const b = await readBody(req);
@@ -111,7 +119,10 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if ((m = /^\/admins\/([\w-]+)\/reset-link$/.exec(path)) && req.method === 'POST') { const r = issueResetToken(app.store, actor, m[1]); return ok({ ...r, path: `/admin#reset=${r.token}` }, 201); }
 
     // 自分のアカウント: パスワード変更 / 二段階認証
-    if (path === '/security' && req.method === 'GET') return ok({ email: actor.email, totp: actor.totp });
+    if (path === '/security' && req.method === 'GET') return ok({ email: actor.email, totp: actor.totp, passkeys: listPasskeys(app.store, actor) });
+    if (path === '/security/passkeys/options' && req.method === 'POST') return ok(beginPasskeyRegistration(app.store, app.vault, actor, { password: body.password, rpId: waOf(req).rpId }));
+    if (path === '/security/passkeys/register' && req.method === 'POST') return ok(finishPasskeyRegistration(app.store, app.vault, actor, { token: body.token, credential: body.credential, name: body.name, ...waOf(req) }), 201);
+    if (path === '/security/passkeys/delete' && req.method === 'POST') { deletePasskey(app.store, actor, { id: body.id, password: body.password }); return ok(); }
     if (path === '/security/password' && req.method === 'POST') return ok({ token: changePassword(app.store, actor, { current: body.current, next: body.next, secret: sessionSecret }) });
     if (path === '/security/2fa/setup' && req.method === 'POST') return ok(setup2fa(app.store, app.vault, actor, body));
     if (path === '/security/2fa/enable' && req.method === 'POST') return ok(enable2fa(app.store, app.vault, actor, body));

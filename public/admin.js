@@ -16,6 +16,24 @@ async function api(path, { method = 'GET', body, blob } = {}) {
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw Object.assign(new Error(j.error || `エラー(${r.status})`), { details: j.details }); }
   return blob ? r.blob() : r.json();
 }
+// ---- パスキー (WebAuthn) ----
+const b64uToBuf = (str) => { const t = str.replace(/-/g, '+').replace(/_/g, '/'); const bin = atob(t.padEnd(Math.ceil(t.length / 4) * 4, '=')); return Uint8Array.from(bin, (c) => c.charCodeAt(0)).buffer; };
+const bufToB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const passkeySupported = () => !!(window.PublicKeyCredential && navigator.credentials);
+async function getAssertion(options) {
+  const pk = options.publicKey;
+  const cred = await navigator.credentials.get({ publicKey: { ...pk, challenge: b64uToBuf(pk.challenge), allowCredentials: pk.allowCredentials.map((c) => ({ ...c, id: b64uToBuf(c.id) })) } });
+  return { id: cred.id, response: { clientDataJSON: bufToB64u(cred.response.clientDataJSON), authenticatorData: bufToB64u(cred.response.authenticatorData), signature: bufToB64u(cred.response.signature) } };
+}
+async function createPasskey(options) {
+  const pk = options.publicKey;
+  const cred = await navigator.credentials.create({ publicKey: { ...pk, challenge: b64uToBuf(pk.challenge), user: { ...pk.user, id: b64uToBuf(pk.user.id) },
+    excludeCredentials: (pk.excludeCredentials ?? []).map((c) => ({ ...c, id: b64uToBuf(c.id) })) } });
+  return { id: cred.id, response: { clientDataJSON: bufToB64u(cred.response.clientDataJSON), attestationObject: bufToB64u(cred.response.attestationObject) }, transports: cred.response.getTransports?.() ?? [] };
+}
+// ブラウザ/端末側の取り消し・タイムアウトは、分かりやすい文言にする
+const passkeyError = (e) => (e?.name === 'NotAllowedError' ? new Error('パスキーの確認がキャンセルされたか、時間切れになりました') : e?.name === 'InvalidStateError' ? new Error('この端末のパスキーは既に登録されています') : e);
+
 const errText = (e) => [e.message, ...(e.details ?? [])].join('\n');
 const can = (p) => ST.me?.perms.includes(p);
 const btn = (text, onclick, cls = '') => el('button', { className: `btn ${cls}`, type: 'button', onclick }, text);
@@ -26,16 +44,33 @@ const run = (box, fn) => async (...a) => { try { box && (box.textContent = ''); 
 function loginView() {
   if (location.hash.startsWith('#reset=')) return resetView(location.hash.slice('#reset='.length));
   const err = el('div', { className: 'err' });
-  const email = el('input', { type: 'email', autocomplete: 'username' }), pw = el('input', { type: 'password', autocomplete: 'current-password' });
+  const email = el('input', { type: 'email', autocomplete: 'username webauthn' }), pw = el('input', { type: 'password', autocomplete: 'current-password' });
   const code = el('input', { type: 'text', inputMode: 'numeric', autocomplete: 'one-time-code', placeholder: '6桁のコード または 回復コード' });
-  const codeBox = lab('認証コード(二段階認証)', code, '認証アプリのコードを入力してください。'); codeBox.style.display = 'none';
-  const go = run(err, async () => {
-    const r = await api('/login', { method: 'POST', body: { email: email.value, password: pw.value, code: code.value || undefined } });
-    if (r.requires2fa) { codeBox.style.display = ''; code.focus(); err.textContent = ''; return; }
-    store.set(r.token); await boot();
+  const codeBox = lab('認証アプリのコード', code, '認証アプリのコードか、回復コードを入力してください。'); codeBox.style.display = 'none';
+  const passkeyBox = el('div', { style: 'display:none;margin-top:12px' }); 
+  const base = () => ({ email: email.value, password: pw.value });
+  const done = async (r) => { store.set(r.token); await boot(); };
+  // パスキー: 毎回サーバから新しいチャレンジを受け取る (時間が経っても使える)
+  const withPasskey = run(err, async () => {
+    if (!passkeySupported()) throw new Error('このブラウザはパスキーに対応していません');
+    const r = await api('/login', { method: 'POST', body: base() });
+    if (!r.requires2fa || !r.passkey) throw new Error('パスキーが登録されていません');
+    let assertion;
+    try { assertion = await getAssertion(r.passkey); } catch (e) { throw passkeyError(e); }
+    await done(await api('/login', { method: 'POST', body: { ...base(), challenge: r.passkey.token, assertion } }));
   });
+  const go = run(err, async () => {
+    const r = await api('/login', { method: 'POST', body: { ...base(), code: code.value || undefined } });
+    if (!r.requires2fa) return done(r);
+    err.textContent = '';
+    codeBox.style.display = r.methods.includes('totp') ? '' : 'none';
+    passkeyBox.style.display = r.methods.includes('passkey') ? '' : 'none';
+    if (r.methods.includes('passkey')) { err.className = 'hint'; err.textContent = '指紋・顔・端末の画面ロックで確認してください。'; withPasskey(); }
+    else code.focus();
+  });
+  passkeyBox.append(btn('パスキーでログイン(指紋・顔・画面ロック)', withPasskey, 'pri'), el('div', { className: 'hint' }, '認証アプリを使う場合は、上のコード欄に入力して「ログイン」を押してください。'));
   for (const i of [pw, code]) i.addEventListener('keydown', (e) => e.key === 'Enter' && go());
-  root.replaceChildren(el('div', { className: 'login card' }, el('h2', {}, '管理画面ログイン'), lab('メールアドレス', email), lab('パスワード', pw), codeBox, err,
+  root.replaceChildren(el('div', { className: 'login card' }, el('h2', {}, '管理画面ログイン'), lab('メールアドレス', email), lab('パスワード', pw), codeBox, err, passkeyBox,
     el('div', { className: 'row', style: 'margin-top:12px' }, btn('ログイン', go, 'pri')), el('p', { className: 'hint' }, 'パスワードを忘れた場合は、店舗管理者または運営に再設定リンクの発行を依頼してください。')));
 }
 function resetView(token) {
@@ -61,8 +96,8 @@ function layout(content) {
       ST.tenants.map((t) => el('option', { value: t.tenant_id, selected: t.tenant_id === ST.tenant }, `${t.name} (${t.tenant_id})`)));
     head.append(sel);
   }
-  head.append(el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { store.set(null); ST.me = null; render(); }));
-  root.replaceChildren(head, el('nav', {}, tabs.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => { ST.tab = k; render(); } }, t))), el('main', {}, content));
+  head.append(el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
+  root.replaceChildren(head, el('nav', {}, tabs.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => { if (ST.tab === k && rendering) return; ST.tab = k; render(); } }, t))), el('main', {}, content));
 }
 
 // ---------- フォーム設定 ----------
@@ -414,7 +449,23 @@ async function accountView() {
           }), 'pri')));
       }), 'pri')));
   }
-  const cards = [pwCard, el('div', { className: 'card' }, el('h2', {}, `二段階認証(${sec.email})`), box)];
+  // パスキー (アプリ不要: 指紋・顔・端末の画面ロックで承認)
+  const e5 = el('div', { className: 'err' }), o5 = el('div', { className: 'ok' });
+  const pkPw = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'パスワード' }), pkName = el('input', { type: 'text', placeholder: '名前(例: 事務所のPC、私のiPhone)', maxLength: 40 });
+  const pkCard = el('div', { className: 'card' }, el('h2', {}, 'パスキー(指紋・顔認証・画面ロックでログイン)'),
+    el('div', { className: 'hint' }, 'アプリのインストールは不要です。端末の指紋認証・顔認証・画面ロック解除を、ログイン時の二段階目として使えます。パスワード漏えい時の不正ログインを防げます。登録した端末ごとに設定してください。同じURL(アドレス)で開いたときだけ使えます。'),
+    sec.passkeys.map((k) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, k.name), el('span', { className: 'hint' }, `登録: ${k.created_at.slice(0, 10)} / 最終使用: ${k.last_used_at ? k.last_used_at.slice(0, 10) : '-'}`)),
+      btn('削除', run(e5, async () => { if (!pkPw.value) throw new Error('下のパスワード欄にパスワードを入力してください'); if (confirm(`「${k.name}」を削除します。`)) { await api('/security/passkeys/delete', { method: 'POST', body: { id: k.credential_id, password: pkPw.value } }); render(); } }), 'dng'))),
+    lab('パスワード(登録・削除の確認)', pkPw), lab('このパスキーの名前', pkName), e5, o5,
+    el('div', { className: 'row', style: 'margin-top:8px' }, btn('この端末にパスキーを登録', run(e5, async () => {
+      o5.textContent = '';
+      if (!passkeySupported()) throw new Error('このブラウザはパスキーに対応していません');
+      const opt = await api('/security/passkeys/options', { method: 'POST', body: { password: pkPw.value } });
+      let credential; try { credential = await createPasskey(opt); } catch (e) { throw passkeyError(e); }
+      await api('/security/passkeys/register', { method: 'POST', body: { token: opt.token, credential, name: pkName.value } });
+      render();
+    }), 'pri')));
+  const cards = [pwCard, pkCard, el('div', { className: 'card' }, el('h2', {}, `認証アプリ(6桁のコード・${sec.email})`), box)];
   if (ST.me.role === 'STORE_ADMIN') {
     const { admins } = await api('/admins'); const e4 = el('div', { className: 'err' });
     cards.push(el('div', { className: 'card' }, el('h2', {}, 'スタッフのアカウント'), el('div', { className: 'hint' }, 'パスワードを忘れたスタッフには「再設定リンク」を発行して本人に渡してください。'), adminsCard(admins, e4, render), e4));
@@ -453,10 +504,18 @@ async function opsView() {
 
 // ---------- ルーティング ----------
 const VIEWS = { form: formView, members: membersView, scan: scanView, messages: messagesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
-async function render() {
+// 描画は1つずつ直列に実行し、実行中に再要求があれば終了後にもう一度だけ描き直す。
+// (画面を素早く切り替えたとき、遅れて終わった前の画面が今の画面を上書きしないようにする)
+let rendering = false, renderAgain = false;
+async function doRender() {
   scanStop(); // 別タブへ移動したらカメラを止める
   if (!ST.me) return loginView();
   try { await VIEWS[ST.tab](); } catch (e) { if (ST.me) layout(el('div', { className: 'card err' }, errText(e))); }
+}
+async function render() {
+  if (rendering) { renderAgain = true; return; }
+  rendering = true;
+  try { do { renderAgain = false; await doRender(); } while (renderAgain); } finally { rendering = false; }
 }
 async function boot() {
   ST.me = await api('/me');

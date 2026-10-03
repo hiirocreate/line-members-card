@@ -23,7 +23,7 @@
 gcloud run deploy line-members --source . --region asia-northeast1 \
   --service-account sheets-writer@<プロジェクトID>.iam.gserviceaccount.com \
   --max-instances 1 --allow-unauthenticated \
-  --set-env-vars LINE_LOGIN_CHANNEL_ID=...,LIFF_ID=...,SPREADSHEET_ID=...,OPERATOR_EMAIL=you@example.com \
+  --set-env-vars LINE_LOGIN_CHANNEL_ID=...,LIFF_ID=...,SPREADSHEET_ID=...,OPERATOR_EMAIL=you@example.com,PUBLIC_ORIGIN=https://<サービスURL> \
   --set-secrets SESSION_SECRET=session-secret:latest,DATA_ENCRYPTION_KEY=data-key:latest,OPERATOR_PASSWORD=operator-password:latest
 ```
 - `--max-instances 1` は必須 (Sheets へ全シート書き戻しのため、複数インスタンスだと上書きし合う)。
@@ -51,3 +51,8 @@ gcloud run deploy line-members --source . --region asia-northeast1 \
 - **パスワード再設定**: 管理画面の管理者一覧(店舗管理者=自店舗スタッフ / 運営=全員)から「再設定リンク」を発行して本人に渡す (1時間・1回限り)。二段階認証の解除も同じ画面。
 - **二段階認証**: 各管理者が「アカウント」タブで任意に有効化 (認証アプリ + 回復コード8個)。
 - **Sheets の列追加**: 新バージョンで列が増えても、起動時に既存データを保持したまま自動で列が追加される。
+
+## 7. 二段階認証 (アプリ不要のパスキー)
+- 管理画面「アカウント」→「パスキー」で、端末の指紋認証・顔認証・画面ロック解除をログインの二段階目として登録できる (認証アプリは不要)。認証アプリ(6桁コード)とも併用でき、どちらでもログインできる。
+- パスキーは「ドメイン」に紐づく。**管理画面は常に同じURLで開く**こと。Cloud Run は URL を2種類発行する (`…-<プロジェクト番号>.<リージョン>.run.app` と `…-xxxx-an.a.run.app`)。環境変数 `PUBLIC_ORIGIN` に、普段使うURL(例 `https://line-members-730765585909.asia-northeast1.run.app`)を設定して固定すると、取り違えを防げる。独自ドメインへ移行するとパスキーは作り直しになる。
+- 端末を紛失したときは、店舗管理者(自店舗スタッフ)または運営が「2FAリセット」で、パスキーと認証アプリの設定をまとめて解除できる。

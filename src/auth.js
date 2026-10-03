@@ -3,6 +3,7 @@ import { scryptSync, randomBytes, timingSafeEqual, createHmac, createHash, rando
 import { ValidationError, AuthError } from './sanitize.js';
 import { require_, ROLES, Forbidden } from './permissions.js';
 import { audit } from './audit.js';
+import { creationOptions, verifyRegistration, requestOptions, verifyAssertion } from './webauthn.js';
 import { newSecret, verifyTotp, otpauthUri, newRecoveryCodes, hashRecovery } from './totp.js';
 
 const SESSION_TTL_MS = 8 * 3600_000;
@@ -80,19 +81,37 @@ function checkSecondFactor(store, vault, a, code) {
   return false;
 }
 
-// 戻り値: { token } | { requires2fa: true }
-export function login(store, { email, password, code, secret, limiter, ip = '', vault }) {
+const passkeysOf = (store, adminId) => store.select('passkeys', (k) => k.admin_id === adminId);
+
+// 戻り値: { token } | { requires2fa: true, methods: ['totp'|'passkey'], passkey?: {token, publicKey} }
+// 二段階認証は「認証アプリのコード/回復コード」か「パスキー(指紋・顔・画面ロック)」のどちらでも可。
+// webauthn: { rpId, origin } (パスキー使用時に必須。リクエストのホストから決める)
+export function login(store, { email, password, code, assertion, challenge, secret, limiter, ip = '', vault, webauthn }) {
   const e = normEmail(email), key = `${e}|${ip}`;
   limiter?.check(key);
   const a = store.find('admins', (x) => x.email === e);
   const good = checkPassword(String(password ?? ''), a?.password_hash ?? DUMMY) && a?.enabled;
   if (!good) { limiter?.fail(key); throw new ValidationError('メールアドレスまたはパスワードが違います'); }
-  if (a.totp_enabled) {
-    if (!code) return { requires2fa: true };
-    if (!checkSecondFactor(store, vault, a, code)) { limiter?.fail(key); throw new ValidationError('認証コードが正しくありません'); }
+  const keys = passkeysOf(store, a.admin_id);
+  const methods = [...(a.totp_enabled ? ['totp'] : []), ...(keys.length ? ['passkey'] : [])];
+  let how = null;
+  if (methods.length) {
+    if (assertion) {
+      try {
+        const r = verifyAssertion(vault, { admin: a, token: challenge, assertion, credentials: keys, origin: webauthn.origin, rpId: webauthn.rpId });
+        store.update('passkeys', (k) => k.credential_id === r.credential_id, { sign_count: r.sign_count, last_used_at: new Date().toISOString() });
+        how = 'passkey';
+      } catch (err) { limiter?.fail(key); throw err; }
+    } else if (code && a.totp_enabled) {
+      if (!checkSecondFactor(store, vault, a, code)) { limiter?.fail(key); throw new ValidationError('認証コードが正しくありません'); }
+      how = 'totp';
+    } else if (code) { limiter?.fail(key); throw new ValidationError('認証コードが正しくありません'); }
+    else {
+      return { requires2fa: true, methods, passkey: keys.length && webauthn ? requestOptions(vault, { admin: a, rpId: webauthn.rpId, credentials: keys }) : undefined };
+    }
   }
   limiter?.ok(key);
-  audit(store, { tenant_id: a.tenant_id, actor: { id: a.admin_id }, action: 'ADMIN_LOGIN', target: a.admin_id, detail: { mfa: !!a.totp_enabled } });
+  audit(store, { tenant_id: a.tenant_id, actor: { id: a.admin_id }, action: 'ADMIN_LOGIN', target: a.admin_id, detail: { mfa: how } });
   return { token: issueSession(a, secret) };
 }
 // 毎回 admins を引く: 無効化・ロール変更・パスワード変更/リセットが即時に反映される。tenantId は必ず DB の値を使う。
@@ -145,6 +164,34 @@ export function disable2fa(store, vault, actor, { password, code }) {
   audit(store, { tenant_id: a.tenant_id, actor, action: 'ADMIN_2FA_DISABLE', target: a.admin_id });
 }
 
+// ---- パスキーの管理 (自分のアカウント) ----
+export function listPasskeys(store, actor) {
+  return passkeysOf(store, actor.id).map(({ credential_id, name, created_at, last_used_at }) => ({ credential_id, name, created_at, last_used_at }));
+}
+export function beginPasskeyRegistration(store, vault, actor, { password, rpId }) {
+  const a = getAdmin(store, actor.id);
+  if (!checkPassword(String(password ?? ''), a.password_hash)) throw new ValidationError('パスワードが違います');
+  const existing = passkeysOf(store, a.admin_id);
+  if (existing.length >= 10) throw new ValidationError('登録できるパスキーは10個までです');
+  return creationOptions(vault, { admin: a, rpId, existing });
+}
+export function finishPasskeyRegistration(store, vault, actor, { token, credential, name, origin, rpId }) {
+  const a = getAdmin(store, actor.id);
+  const label = String(name ?? '').trim().slice(0, 40) || 'パスキー';
+  if (/[<>]/.test(label)) throw new ValidationError('名前に使えない文字が含まれています');
+  if (store.find('passkeys', (k) => k.credential_id === credential?.id)) throw new ValidationError('このパスキーは既に登録されています');
+  const r = verifyRegistration(vault, { admin: a, token, credential, origin, rpId });
+  store.insert('passkeys', { ...r, admin_id: a.admin_id, name: label, created_at: new Date().toISOString(), last_used_at: '' });
+  audit(store, { tenant_id: a.tenant_id, actor, action: 'ADMIN_PASSKEY_ADD', target: a.admin_id, detail: { name: label } });
+  return { credential_id: r.credential_id, name: label };
+}
+export function deletePasskey(store, actor, { id, password }) {
+  const a = getAdmin(store, actor.id);
+  if (!checkPassword(String(password ?? ''), a.password_hash)) throw new ValidationError('パスワードが違います');
+  if (!store.remove('passkeys', (k) => k.credential_id === id && k.admin_id === a.admin_id)) throw new ValidationError('パスキーが見つかりません');
+  audit(store, { tenant_id: a.tenant_id, actor, action: 'ADMIN_PASSKEY_REMOVE', target: a.admin_id });
+}
+
 // ---- 他の管理者の操作 (運営=全員 / 店舗管理者=自店舗のスタッフ) ----
 function manageable(store, actor, targetId) {
   const t = getAdmin(store, targetId);
@@ -156,11 +203,12 @@ function manageable(store, actor, targetId) {
 export function listAdmins(store, actor) {
   if (actor.role === ROLES.STAFF) throw new Forbidden('権限がありません');
   return store.select('admins', (a) => actor.role === ROLES.OPERATOR || a.tenant_id === actor.tenantId)
-    .map(({ admin_id, tenant_id, email, role, enabled, totp_enabled }) => ({ admin_id, tenant_id, email, role, enabled, totp_enabled: !!totp_enabled }));
+    .map(({ admin_id, tenant_id, email, role, enabled, totp_enabled }) => ({ admin_id, tenant_id, email, role, enabled, totp_enabled: !!totp_enabled || passkeysOf(store, admin_id).length > 0 }));
 }
 export function resetTwoFactor(store, actor, targetId) {
   const t = manageable(store, actor, targetId);
   store.update('admins', (x) => x.admin_id === t.admin_id, { totp_secret: '', totp_pending: '', totp_enabled: false, recovery_codes: [] });
+  store.remove('passkeys', (k) => k.admin_id === t.admin_id);
   bumpEpoch(store, t);
   audit(store, { tenant_id: t.tenant_id, actor, action: 'ADMIN_2FA_RESET', target: t.admin_id });
 }

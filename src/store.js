@@ -20,11 +20,12 @@ export const SHEETS = {
   settings: ['key', 'value'],
   admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at', 'totp_secret', 'totp_pending',
     'totp_enabled', 'recovery_codes', 'token_epoch'],
+  passkeys: ['credential_id', 'admin_id', 'name', 'public_key', 'alg', 'sign_count', 'transports', 'created_at', 'last_used_at'],
   password_resets: ['token_hash', 'admin_id', 'expires_at', 'used', 'created_by', 'created_at'],
   visits: ['visit_id', 'tenant_id', 'member_id', 'visited_at', 'method', 'recorded_by'],
   messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at'],
 };
-const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors']);
+const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports']);
 
 export class Store {
   constructor(file = null) {

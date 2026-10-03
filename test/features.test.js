@@ -90,7 +90,7 @@ test('二段階認証: 設定→ログインに必須→回復コードは1回�
   assert.throws(() => enable2fa(store, vault, a, { code: '000000' }), /認証コード/);
   const { recoveryCodes } = enable2fa(store, vault, a, { code: totp(secret) });
   assert.equal(recoveryCodes.length, 8);
-  assert.deepEqual(L(), { requires2fa: true });
+  const need = L(); assert.equal(need.requires2fa, true); assert.deepEqual(need.methods, ['totp']); assert.equal(need.token, undefined);
   assert.throws(() => L('123456'), /認証コード/);
   assert.ok(L(totp(secret)).token);
   assert.ok(L(recoveryCodes[0]).token);

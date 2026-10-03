@@ -5,6 +5,11 @@ export class ValidationError extends Error {
   constructor(message, details = []) { super(message); this.name = 'ValidationError'; this.details = details; }
 }
 
+// 認証失敗 (HTTP 401): LINEのIDトークンが無効/期限切れ。クライアントは再ログインする。
+export class AuthError extends Error {
+  constructor(message) { super(message); this.name = 'AuthError'; }
+}
+
 export function assertSafeText(value, label) {
   if (typeof value !== 'string') return;
   if (DANGEROUS.test(value)) throw new ValidationError(`${label}にHTML/スクリプトは使用できません`);

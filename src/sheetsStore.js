@@ -45,8 +45,10 @@ export class SheetsStore extends Store {
     data.valueRanges.forEach((vr, i) => {
       const name = Object.keys(SHEETS)[i];
       const [head, ...rows] = vr.values ?? [];
-      // ヘッダーが無い/不一致なら新規扱いでヘッダーを書く
-      if (!head || head.join() !== SHEETS[name].join()) { sheets[name] = [SHEETS[name]]; this.dirty.add(name); } else sheets[name] = [head, ...rows];
+      if (!head) { sheets[name] = [SHEETS[name]]; this.dirty.add(name); return; }
+      // 列が増減していても、シート側のヘッダー名で読み込んで既存データを保持する (新列は空欄)。
+      if (head.join() !== SHEETS[name].join()) this.dirty.add(name);
+      sheets[name] = [head, ...rows];
     });
     const orig = this._changed; this._changed = () => {};
     this.importSheets(sheets);

@@ -4,10 +4,10 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 // シートごとのヘッダー。配列/オブジェクト列は JSON 文字列でセルに保存する。
 export const SHEETS = {
-  tenants: ['tenant_id', 'name', 'status', 'form_version', 'created_at'],
+  tenants: ['tenant_id', 'name', 'status', 'form_version', 'created_at', 'liff_id', 'login_channel_id', 'messaging_token', 'shopcard_url'],
   tenant_urls: ['token', 'tenant_id', 'enabled', 'created_at'],
   members: ['member_id', 'tenant_id', 'user_id', 'member_number', 'name', 'phone', 'email',
-    'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version'],
+    'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version', 'withdrawn_at', 'withdraw_reason'],
   field_master: ['key', 'label', 'field_type', 'sensitivity', 'purpose_text', 'core_column', 'options',
     'enabled', 'created_at'],
   custom_fields: ['field_id', 'tenant_id', 'master_key', 'field_name', 'field_type', 'required', 'enabled',
@@ -18,9 +18,13 @@ export const SHEETS = {
   form_versions: ['tenant_id', 'version', 'snapshot', 'created_by', 'created_at'],
   audit_logs: ['log_id', 'tenant_id', 'actor', 'action', 'target', 'detail', 'created_at'],
   settings: ['key', 'value'],
-  admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at'],
+  admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at', 'totp_secret', 'totp_pending',
+    'totp_enabled', 'recovery_codes', 'token_epoch'],
+  password_resets: ['token_hash', 'admin_id', 'expires_at', 'used', 'created_by', 'created_at'],
+  visits: ['visit_id', 'tenant_id', 'member_id', 'visited_at', 'method', 'recorded_by'],
+  messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at'],
 };
-const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants']);
+const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors']);
 
 export class Store {
   constructor(file = null) {
@@ -59,11 +63,16 @@ export class Store {
   }
   importSheets(sheets) {
     for (const [name, [headers, ...rows]] of Object.entries(sheets)) {
-      this.t[name] = rows.map((cells) => Object.fromEntries(headers.map((h, i) => {
-        const c = cells[i];
-        if (JSON_COLS.has(h)) return [h, c === '' || c === undefined ? (h === 'options' ? [] : undefined) : JSON.parse(c)];
-        return [h, c ?? ''];
-      })));
+      const cols = SHEETS[name] ?? headers;
+      this.t[name] = rows.map((cells) => {
+        const row = Object.fromEntries(headers.map((h, i) => {
+          const c = cells[i];
+          if (JSON_COLS.has(h)) return [h, c === '' || c === undefined ? (h === 'options' ? [] : undefined) : JSON.parse(c)];
+          return [h, c ?? ''];
+        }));
+        for (const h of cols) if (!(h in row)) row[h] = JSON_COLS.has(h) ? (h === 'options' ? [] : undefined) : ''; // 新しく増えた列
+        return row;
+      });
     }
     for (const name of Object.keys(sheets)) this._changed(name);
   }

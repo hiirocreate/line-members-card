@@ -3,13 +3,14 @@ import { ValidationError } from './sanitize.js';
 import { validateValue, displayValue } from './fieldTypes.js';
 import { require_, canSeeField, can } from './permissions.js';
 import { audit } from './audit.js';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { buildXlsx } from './xlsx.js';
 
 const now = () => new Date().toISOString();
 export const UNREGISTERED = '未登録';
 
 export class MemberService {
-  constructor(store, forms) { this.store = store; this.forms = forms; }
+  constructor(store, forms, vault = null) { this.store = store; this.forms = forms; this.vault = vault; this.usedNonces = new Map(); }
 
   findByUser(tenantId, userId) { return this.store.find('members', (m) => m.tenant_id === tenantId && m.user_id === userId); }
 
@@ -75,33 +76,96 @@ export class MemberService {
   register(tenantId, userId, input, { confirmed = false } = {}) {
     if (!confirmed) throw new ValidationError('登録内容の確認が必要です');
     if (!userId) throw new ValidationError('ユーザーを特定できません');
-    if (this.store.find('members', (m) => m.tenant_id === tenantId && m.user_id === userId)) throw new ValidationError('既に登録されています');
+    const existing = this.findByUser(tenantId, userId);
+    if (existing && existing.status !== 'WITHDRAWN') throw new ValidationError('既に登録されています');
     const form = this.forms.getUserForm(tenantId);
     const out = this.#validate(form.fields, input, { requireAll: true });
-    const seq = this.store.select('members', (m) => m.tenant_id === tenantId).length + 1;
-    const member = { member_id: `M${String(seq).padStart(3, '0')}`, tenant_id: tenantId, user_id: userId, member_number: String(seq).padStart(6, '0'),
-      name: '', phone: '', email: '', registered_at: now(), last_visit_at: '', visit_count: 0, status: 'ACTIVE', form_version: form.version };
-    this.store.insert('members', member);
+    let member = existing;
+    if (existing) { // 退会済みの再入会: 同じ会員番号で有効化。過去データは保持し、入力された項目だけ更新
+      this.store.update('members', (m) => m.tenant_id === tenantId && m.member_id === existing.member_id, { status: 'ACTIVE', withdrawn_at: '', withdraw_reason: '', form_version: form.version });
+    } else {
+      const seq = this.store.select('members', (m) => m.tenant_id === tenantId).length + 1;
+      member = { member_id: `M${String(seq).padStart(3, '0')}`, tenant_id: tenantId, user_id: userId, member_number: String(seq).padStart(6, '0'),
+        name: '', phone: '', email: '', registered_at: now(), last_visit_at: '', visit_count: 0, status: 'ACTIVE', form_version: form.version, withdrawn_at: '', withdraw_reason: '' };
+      this.store.insert('members', member);
+    }
     for (const f of form.fields) {
       const v = out.get(f.field_id);
-      if (v !== null) this.#write(member, f, v);
+      if (v !== null) this.#write(member, f, v); else if (existing) this.#write(member, f, null);
       this.#setConsent(member, f, v === true);
     }
-    audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: 'MEMBER_REGISTER', target: member.member_id, detail: { version: form.version } });
+    audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: existing ? 'MEMBER_REJOIN' : 'MEMBER_REGISTER', target: member.member_id, detail: { version: form.version } });
     return this.store.find('members', (m) => m.member_id === member.member_id && m.tenant_id === tenantId);
   }
 
+  // ---- 退会 (削除せず status=WITHDRAWN。データは保持し、配信同意は取り消す) ----
+  #withdraw(m, actor, reason) {
+    if (m.status === 'WITHDRAWN') throw new ValidationError('既に退会済みです');
+    const why = typeof reason === 'string' ? reason.trim().slice(0, 200) : '';
+    this.store.update('members', (r) => r.tenant_id === m.tenant_id && r.member_id === m.member_id, { status: 'WITHDRAWN', withdrawn_at: now(), withdraw_reason: why });
+    this.store.update('member_consents', (c) => c.tenant_id === m.tenant_id && c.member_id === m.member_id, { granted: false, updated_at: now() });
+    audit(this.store, { tenant_id: m.tenant_id, actor, action: 'MEMBER_WITHDRAW', target: m.member_id, detail: { by: actor.id === m.user_id ? 'self' : 'admin' } });
+  }
+  withdrawByUser(tenantId, userId, reason) {
+    const m = this.findByUser(tenantId, userId);
+    if (!m) throw new ValidationError('会員が存在しません');
+    this.#withdraw(m, { id: userId }, reason);
+  }
+  withdrawByAdmin(actor, tenantId, memberId, reason) {
+    require_(actor, 'MEMBER_STATUS', tenantId);
+    this.#withdraw(this.#member(tenantId, memberId), actor, reason);
+  }
+  restore(actor, tenantId, memberId) {
+    require_(actor, 'MEMBER_STATUS', tenantId);
+    const m = this.#member(tenantId, memberId);
+    if (m.status !== 'WITHDRAWN') throw new ValidationError('退会済みの会員ではありません');
+    this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === memberId, { status: 'ACTIVE', withdrawn_at: '', withdraw_reason: '' });
+    audit(this.store, { tenant_id: tenantId, actor, action: 'MEMBER_RESTORE', target: memberId }); // 配信同意は復元しない(再同意が必要)
+  }
+
   // ---- 来店記録 ----
-  recordVisit(actor, tenantId, memberId) {
+  recordVisit(actor, tenantId, memberId, { method = 'MANUAL' } = {}) {
     require_(actor, 'MEMBER_EDIT', tenantId);
     const m = this.#member(tenantId, memberId);
-    this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === memberId, { visit_count: m.visit_count + 1, last_visit_at: now() });
+    if (m.status === 'WITHDRAWN') throw new ValidationError('退会済みの会員です');
+    const at = now();
+    this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === memberId, { visit_count: m.visit_count + 1, last_visit_at: at });
+    this.store.insert('visits', { visit_id: randomUUID(), tenant_id: tenantId, member_id: memberId, visited_at: at, method, recorded_by: actor.id });
+    return { member_number: m.member_number, visit_count: m.visit_count + 1 };
+  }
+  visits(actor, tenantId, limit = 50) {
+    require_(actor, 'MEMBER_VIEW', tenantId);
+    const nums = new Map(this.store.select('members', (m) => m.tenant_id === tenantId).map((m) => [m.member_id, m]));
+    return this.store.select('visits', (v) => v.tenant_id === tenantId).slice(-limit).reverse()
+      .map((v) => ({ ...v, member_number: nums.get(v.member_id)?.member_number ?? '', name: nums.get(v.member_id)?.name ?? '' }));
+  }
+
+  // 会員証QR: 署名付き・5分有効。画面は定期的に再取得する (スクリーンショットの使い回し防止)
+  issueVisitCode(tenantId, userId, ttlMs = 5 * 60_000) {
+    const m = this.findByUser(tenantId, userId);
+    if (!m || m.status === 'WITHDRAWN') throw new ValidationError('会員が存在しません');
+    const exp = Date.now() + ttlMs;
+    return { code: `MC1.${this.vault.sign('visit', { t: tenantId, m: m.member_id, e: exp, n: randomBytes(9).toString('base64url') })}`, expiresAt: exp };
+  }
+  // 店舗スタッフが会員証QRを読み取って来店を記録 (自店舗の会員のみ / 使い捨て / 連続記録の抑止)
+  scanVisit(actor, tenantId, code, { cooldownMin = 30 } = {}) {
+    require_(actor, 'MEMBER_EDIT', tenantId);
+    const p = typeof code === 'string' && code.startsWith('MC1.') ? this.vault.verify('visit', code.slice(4)) : null;
+    if (!p || !(p.e > Date.now())) throw new ValidationError('QRコードが無効か、期限切れです。会員に画面を更新してもらってください');
+    if (p.t !== tenantId) throw new ValidationError('他店舗の会員証です');
+    for (const [n, e] of this.usedNonces) if (e < Date.now()) this.usedNonces.delete(n);
+    if (this.usedNonces.has(p.n)) throw new ValidationError('このQRコードは使用済みです');
+    const m = this.#member(tenantId, p.m);
+    if (m.status === 'WITHDRAWN') throw new ValidationError('退会済みの会員です');
+    if (m.last_visit_at && Date.now() - Date.parse(m.last_visit_at) < cooldownMin * 60_000) throw new ValidationError(`${cooldownMin}分以内に来店記録済みです`);
+    this.usedNonces.set(p.n, p.e);
+    return this.recordVisit(actor, tenantId, m.member_id, { method: 'QR' });
   }
 
   // ---- 変更 ----
   updateByUser(tenantId, userId, input) {
     const m = this.store.find('members', (r) => r.tenant_id === tenantId && r.user_id === userId);
-    if (!m) throw new ValidationError('会員が存在しません');
+    if (!m || m.status === 'WITHDRAWN') throw new ValidationError('会員が存在しません');
     const editable = this.forms.getUserForm(tenantId).fields.filter((f) => f.user_editable); // 店舗のみ変更可の項目は除外
     const out = this.#validate(editable, input, { requireAll: false });
     for (const [id, v] of out) { const f = editable.find((x) => x.field_id === id); this.#write(m, f, v); this.#setConsent(m, f, v === true); }
@@ -146,9 +210,12 @@ export class MemberService {
     const members = this.store.select('members', (m) => m.tenant_id === tenantId);
     return { fields, rows: members.map((m) => ({ m, v: vals.get(m.member_id) ?? {} })) };
   }
-  search(actor, tenantId, { where, sort, limit = 100, offset = 0 } = {}) {
+  // status: 'ACTIVE'(既定) | 'WITHDRAWN' | 'ALL'。退会済みは既定で除外される。
+  search(actor, tenantId, { where, sort, limit = 100, offset = 0, status = 'ACTIVE' } = {}) {
     require_(actor, 'MEMBER_VIEW', tenantId);
-    const { fields, rows } = this.#rows(actor, tenantId);
+    if (!['ACTIVE', 'WITHDRAWN', 'ALL'].includes(status)) throw new ValidationError('statusが不正です');
+    const { fields, rows: all } = this.#rows(actor, tenantId);
+    const rows = status === 'ALL' ? all : all.filter((r) => (r.m.status || 'ACTIVE') === status);
     const fieldById = new Map(fields.map((f) => [f.field_id, f]));
     const get = (row, key) => {
       if (key === 'days_since_last_visit') return row.m.last_visit_at ? Math.floor((Date.now() - Date.parse(row.m.last_visit_at)) / 864e5) : Infinity;
@@ -193,7 +260,7 @@ export class MemberService {
   }
 
   // ---- CSV (Excelで開けるUTF-8 BOM付き) 出力 ----
-  #exportTable(actor, tenantId, { columns, where, sort }, format) {
+  #exportTable(actor, tenantId, { columns, where, sort, status }, format) {
     require_(actor, 'EXPORT_MEMBERS', tenantId);
     const { fields } = this.#rows(actor, tenantId);
     const fieldById = new Map(fields.map((f) => [f.field_id, f]));
@@ -212,7 +279,7 @@ export class MemberService {
       if (f.sensitivity !== 'NORMAL' && !can(actor, 'EXPORT_PERSONAL_DATA')) throw new ValidationError(`個人情報の出力権限がありません: ${f.field_name}`);
       head.push(f.field_name); getters.push(({ m, v }) => { const r = this.#read(m, f, v); return r === null ? '' : displayValue(f, r); });
     }
-    const { _rows } = this.search(actor, tenantId, { where, sort, limit: Infinity });
+    const { _rows } = this.search(actor, tenantId, { where, sort, limit: Infinity, status });
     const table = [head, ..._rows.map((r) => getters.map((g) => g(r)))];
     audit(this.store, { tenant_id: tenantId, actor, action: 'MEMBERS_EXPORT', target: format, detail: { columns, rows: _rows.length } });
     return table;

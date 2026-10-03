@@ -65,3 +65,20 @@ test('SheetsStore: flush失敗時は dirty を保持して再試行できる', a
   fail = false; await s.flush();
   assert.deepEqual(g.sheets.get('settings')[1], ['k', '1']);
 });
+
+test('SheetsStore: 旧バージョンの列構成のシートでも既存データを保持して新列を追加する', async () => {
+  const g = fakeGoogle();
+  // 退会列などが無い旧ヘッダー + 既存会員
+  const oldMembers = ['member_id', 'tenant_id', 'user_id', 'member_number', 'name', 'phone', 'email', 'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version'];
+  for (const n of Object.keys(SHEETS)) g.sheets.set(n, []);
+  g.sheets.set('members', [oldMembers, ['M001', 'SHOP001', 'U1', '000001', '山田', '09011112222', '', '2026-01-01', '', 3, 'ACTIVE', 2]]);
+  const s = new SheetsStore({ spreadsheetId: 'SID', serviceAccount: sa(), fetchImpl: g.fetchImpl, tokenUrl: 'https://oauth2.example/token' });
+  await s.init();
+  const m = s.find('members', () => true);
+  assert.equal(m.name, '山田'); assert.equal(m.visit_count, 3); assert.equal(m.member_number, '000001');
+  assert.equal(m.withdrawn_at, '');
+  const rewritten = g.sheets.get('members');
+  assert.deepEqual(rewritten[0], SHEETS.members); // ヘッダーが新構成に更新される
+  assert.equal(rewritten[1][rewritten[0].indexOf('name')], '山田'); // 行は失われない
+  assert.equal(rewritten[1][rewritten[0].indexOf('status')], 'ACTIVE');
+});

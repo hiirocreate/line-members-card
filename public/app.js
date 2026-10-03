@@ -87,7 +87,9 @@ function showCard(me, opts = {}) {
   const dl = el('dl'); for (const i of me.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value)); infoCard.append(dl);
   const toggle = el('button', { className: 'chip' }, '');
   const paint = () => drawCard(canvas, design, cardData(cur), { logo, bg, qr: design.qr === 'inside' && !privacy ? qrCanvas : null, privacy });
-  const renderVisit = () => { visit.textContent = privacy ? '最終来店: ••••' : visitText(cur) + (cur.rank?.next ? ` / ${cur.rank.next.title}まであと${cur.rank.next.remaining}回` : ''); };
+  const cardHasVisit = !!(design.fields.lastVisit || design.fields.visitCount); // カードの中に最終来店・来店回数が出ているときは、カードの下には出さない
+  const rankLine = () => { const n = cur.rank?.next; return n ? (cur.rank.demoted ? `ご来店で「${n.title}」に戻ります` : `「${n.title}」まであと${n.remaining}回`) : ''; };
+  const renderVisit = () => { visit.textContent = [cardHasVisit ? '' : (privacy ? '最終来店: ••••' : visitText(cur)), rankLine()].filter(Boolean).join(' / '); visit.style.display = visit.textContent ? '' : 'none'; };
 
   async function refreshQr() {
     if (privacy) return; // 隠している間は、QRを取得も表示もしない

@@ -17,7 +17,7 @@ export class RankService {
   get(actor, tenantId) {
     require_(actor, 'CARD_DESIGN', tenantId);
     const c = this.#row(tenantId)?.config;
-    return { enabled: !!c?.enabled, ranks: c?.ranks?.length ? c.ranks : DEFAULT_RANKS, version: Number(this.#row(tenantId)?.version) || 0 };
+    return { enabled: !!c?.enabled, show_next: c?.show_next !== false, ranks: c?.ranks?.length ? c.ranks : DEFAULT_RANKS, version: Number(this.#row(tenantId)?.version) || 0 };
   }
   save(actor, tenantId, input) {
     require_(actor, 'CARD_DESIGN', tenantId);
@@ -29,12 +29,14 @@ export class RankService {
       if (!Number.isInteger(min) || min < 0 || min > 100000) errors.push(`${i + 1}番目: 来店回数は0以上の整数で指定してください`);
       const color = (k, label, optional) => { const v = r?.[k] ?? ''; if (v === '' && optional) return ''; if (typeof v !== 'string' || !HEX.test(v)) { errors.push(`${i + 1}番目: ${label}は #RRGGBB で指定してください`); return ''; } return v.toLowerCase(); };
       const c1 = color('card_color1', 'カードの色1', true), c2 = color('card_color2', 'カードの色2', true);
-      return { title, min_visits: min, star_color: color('star_color', '☆の色', false), card_color1: c1, card_color2: c1 ? (c2 || c1) : '' };
+      const dd = r?.demote_days === '' || r?.demote_days === undefined || r?.demote_days === null ? '' : Number(r.demote_days);
+      if (dd !== '' && (!Number.isInteger(dd) || dd < 1 || dd > 3650)) errors.push(`${i + 1}番目: ランクダウンの日数は1〜3650の整数で指定してください`);
+      return { title, min_visits: min, star_color: color('star_color', '☆の色', false), card_color1: c1, card_color2: c1 ? (c2 || c1) : '', demote_days: i === 0 ? '' : dd };
     });
     if (ranks.length && ranks[0].min_visits !== 0) errors.push('最初のランクの来店回数は0にしてください');
     for (let i = 1; i < ranks.length; i++) if (!(ranks[i].min_visits > ranks[i - 1].min_visits)) { errors.push('来店回数は、ランクが上がるごとに大きくしてください'); break; }
     if (errors.length) throw new ValidationError('会員ランクの入力内容に誤りがあります', errors);
-    const config = { enabled: !!input.enabled, ranks }, cur = this.#row(tenantId);
+    const config = { enabled: !!input.enabled, show_next: input.show_next !== false, ranks }, cur = this.#row(tenantId);
     if (cur) this.store.update('member_ranks', (r) => r.tenant_id === tenantId, { config, version: (Number(cur.version) || 0) + 1, updated_at: new Date().toISOString(), updated_by: actor.id });
     else this.store.insert('member_ranks', { tenant_id: tenantId, config, version: 1, updated_at: new Date().toISOString(), updated_by: actor.id });
     audit(this.store, { tenant_id: tenantId, actor, action: 'RANK_UPDATE', detail: { enabled: config.enabled, count: ranks.length } });
@@ -46,13 +48,18 @@ export class RankService {
     const c = this.#row(tenantId)?.config;
     return c?.enabled ? c.ranks.map((r) => r.title) : [];
   }
-  // 会員のランク (無効なら null)。stars は 1 から。next は次のランクまでの残り回数
-  forVisits(tenantId, visits) {
+  // 会員のランク (無効なら null)。stars は 1 から。
+  // ランクダウン: 最終来店からの日数が、そのランクの demote_days を超えると1つ下のランクになる(下のランクの日数も超えていれば、さらに下がる)。
+  // next は次のランク。ランクダウン中は demoted=true で、来店1回で戻る。show_next が false のときは next を返さない。
+  forVisits(tenantId, visits, lastVisitAt = '', nowMs = Date.now()) {
     const c = this.#row(tenantId)?.config;
     if (!c?.enabled || !c.ranks?.length) return null;
-    const n = Number(visits) || 0;
+    const n = Number(visits) || 0, ts = Date.parse(lastVisitAt), idle = Number.isNaN(ts) ? 0 : Math.max(0, Math.floor((nowMs - ts) / 86400_000));
     let idx = 0; c.ranks.forEach((r, i) => { if (n >= r.min_visits) idx = i; });
-    const r = c.ranks[idx], nx = c.ranks[idx + 1];
-    return { title: r.title, stars: idx + 1, starColor: r.star_color, color1: r.card_color1 || '', color2: r.card_color2 || '', next: nx ? { title: nx.title, remaining: nx.min_visits - n } : null };
+    const earned = idx;
+    while (idx > 0 && Number(c.ranks[idx].demote_days) > 0 && idle > Number(c.ranks[idx].demote_days)) idx--;
+    const r = c.ranks[idx], nx = c.ranks[idx + 1], demoted = idx < earned;
+    return { title: r.title, stars: idx + 1, starColor: r.star_color, color1: r.card_color1 || '', color2: r.card_color2 || '', demoted,
+      next: c.show_next !== false && nx ? { title: nx.title, remaining: Math.max(1, nx.min_visits - n) } : null };
   }
 }

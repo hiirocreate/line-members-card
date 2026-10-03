@@ -102,3 +102,21 @@ test('ランクで絞り込んだ配信(予約メッセージ・メッセージ�
   assert.deepEqual(calls.find((c) => c.messages[0].text === 'gold').to.sort(), ['U2', 'U3']);
   assert.deepEqual(app.members.search(ADMIN_A, T, { where: { logic: 'AND', conditions: [{ field: 'rank', op: 'eq', value: 'ブロンズ' }] } }).members.map((m) => m.user_id), ['U1']);
 });
+
+test('ランクダウン(最終来店からの日数)と「次のランクまで」の表示切り替え', () => {
+  const { app } = env(); const r = app.ranks, DAY = 86400_000, now = Date.now();
+  const ranks = [{ title: 'ブロンズ', min_visits: 0, star_color: '#cd7f32' }, { title: 'ゴールド', min_visits: 10, star_color: '#f5b301', demote_days: 60 }, { title: 'プラチナ', min_visits: 30, star_color: '#7fd3e6', demote_days: 30 }];
+  const bad = (rk, re) => assert.throws(() => r.save(ADMIN_A, T, { enabled: true, ranks: rk }), (e) => e.details.some((x) => re.test(x)));
+  bad(ranks.map((x, i) => (i === 1 ? { ...x, demote_days: 0 } : x)), /ランクダウン/); bad(ranks.map((x, i) => (i === 1 ? { ...x, demote_days: 'abc' } : x)), /ランクダウン/);
+  r.save(ADMIN_A, T, { enabled: true, ranks });
+  const at = (visits, idleDays) => r.forVisits(T, visits, new Date(now - idleDays * DAY).toISOString(), now);
+  assert.equal(at(40, 10).title, 'プラチナ'); assert.equal(at(40, 31).title, 'ゴールド');   // プラチナは30日超で1つ下
+  assert.equal(at(40, 61).title, 'ブロンズ');                                                // ゴールドも60日超でさらに下
+  assert.equal(at(12, 59).title, 'ゴールド'); assert.equal(at(12, 61).title, 'ブロンズ');
+  assert.equal(at(40, 31).stars, 2); assert.equal(at(40, 31).demoted, true); assert.equal(at(40, 31).next.remaining, 1); // 来店1回で戻る
+  assert.equal(at(3, 999).title, 'ブロンズ'); assert.equal(r.forVisits(T, 12, '', now).title, 'ゴールド'); // 来店記録なしはそのまま
+  assert.equal(r.get(ADMIN_A, T).ranks[0].demote_days, ''); // 最初のランクは下がらない
+  // 「次のランクまで」を出さない設定
+  assert.equal(at(12, 1).next.remaining, 18);
+  r.save(ADMIN_A, T, { enabled: true, show_next: false, ranks }); assert.equal(at(12, 1).next, null); assert.equal(r.get(ADMIN_A, T).show_next, false);
+});

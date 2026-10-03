@@ -115,7 +115,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         if (!member) return send(res, 200, { registered: false, shop });
         if (member.status === 'WITHDRAWN') return send(res, 200, { registered: false, withdrawn: true, shop });
         const p = app.members.profile(null, tenantId, member.member_id);
-        const rank = featureOn(app.store, tenantId, 'rank') ? app.ranks.forVisits(tenantId, member.visit_count) : null;
+        const rank = featureOn(app.store, tenantId, 'rank') ? app.ranks.forVisits(tenantId, member.visit_count, member.last_visit_at) : null;
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents,
@@ -281,7 +281,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if ((m = /^\/schedules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'DELETE') { app.schedules.remove(actor, needTenant(), m[1]); return ok(); }
     if ((m = /^\/schedules\/([0-9a-f]{32})\/run$/.exec(path)) && req.method === 'POST') return ok(await app.schedules.runNow(actor, needTenant(), m[1]));
     if (path === '/ranks/titles' && req.method === 'GET') return ok({ titles: app.ranks.titles(actor, needTenant()) });
-    if (path === '/ranks' && req.method === 'GET') return ok(app.ranks.get(actor, needTenant()));
+    if (path === '/ranks' && req.method === 'GET') { const t = needTenant(); return ok({ ...app.ranks.get(actor, t), design: app.card.get(t).design }); } // design: 色の確認用プレビューに使う
     if (path === '/ranks' && req.method === 'PUT') return ok(app.ranks.save(actor, needTenant(), body));
     if (isOp && (m = /^\/tenants\/([\w-]+)\/features$/.exec(path))) { if (req.method === 'GET') return ok({ features: featureMap(app.store, m[1]), labels: FEATURES }); if (req.method === 'PUT') return ok({ features: setFeatures(app.store, actor, m[1], body) }); }
     if (path === '/birthday' && req.method === 'GET') return ok({ ...app.birthday.get(actor, needTenant()), preview: app.birthday.preview(actor, needTenant()) });

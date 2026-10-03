@@ -336,7 +336,7 @@ async function cardView() {
     if (!rankCfg?.enabled) return null;
     let idx = 0; rankCfg.ranks.forEach((r, i) => { if (12 >= r.min_visits) idx = i; });
     const r = rankCfg.ranks[idx], nx = rankCfg.ranks[idx + 1];
-    return { title: r.title, stars: idx + 1, starColor: r.star_color, color1: r.card_color1 || '', color2: r.card_color2 || '', next: nx ? { title: nx.title, remaining: nx.min_visits - 12 } : null };
+    return { title: r.title, stars: idx + 1, starColor: r.star_color, color1: r.card_color1 || '', color2: r.card_color2 || '', demoted: false, next: rankCfg.show_next !== false && nx ? { title: nx.title, remaining: nx.min_visits - 12 } : null };
   };
   const redraw = async () => {
     const [logo, bg] = await Promise.all([getImage(design.logo.imageId), getImage(design.background.imageId)]);
@@ -776,32 +776,48 @@ async function rankView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   const cfg = await api('/ranks'), err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' });
   const DEFAULTS = [['レギュラー', 0, '#cd7f32'], ['シルバー', 5, '#b0b7c3'], ['ゴールド', 15, '#f5b301'], ['プラチナ', 30, '#7fd3e6']];
-  const st = { enabled: cfg.enabled, ranks: structuredClone(cfg.ranks) };
-  const list = el('div');
-  const draw = () => list.replaceChildren(...st.ranks.map((r, i) => {
-    const t = el('input', { type: 'text', value: r.title, maxLength: 12, placeholder: '称号', style: 'width:110px;flex:none;padding:5px 8px', oninput: () => { r.title = t.value; sw(); } });
-    const n = el('input', { type: 'number', min: 0, value: r.min_visits, disabled: i === 0, style: 'width:70px;flex:none;padding:5px 8px', oninput: () => { r.min_visits = Number(n.value); } });
-    const sc = el('input', { type: 'color', value: r.star_color, title: '☆の色', style: 'width:34px;height:28px;padding:0;flex:none;border:1px solid #cfd4dc;border-radius:6px;background:none', oninput: () => { r.star_color = sc.value; sw(); } });
-    const on = el('input', { type: 'checkbox', checked: !!r.card_color1, style: 'width:auto;margin:0', title: 'このランクのカード色を変える', onchange: () => { if (on.checked) { r.card_color1 = c1.value; r.card_color2 = c2.value; } else { r.card_color1 = ''; r.card_color2 = ''; } c1.disabled = c2.disabled = !on.checked; sw(); } });
-    const c1 = el('input', { type: 'color', value: r.card_color1 || '#222222', disabled: !r.card_color1, title: 'カードの色1', style: 'width:34px;height:28px;padding:0;flex:none;border:1px solid #cfd4dc;border-radius:6px;background:none', oninput: () => { r.card_color1 = c1.value; sw(); } });
-    const c2 = el('input', { type: 'color', value: r.card_color2 || r.card_color1 || '#444444', disabled: !r.card_color1, title: 'カードの色2', style: 'width:34px;height:28px;padding:0;flex:none;border:1px solid #cfd4dc;border-radius:6px;background:none', oninput: () => { r.card_color2 = c2.value; sw(); } });
-    const swatch = el('span', { style: 'display:inline-block;min-width:96px;padding:3px 8px;border-radius:6px;font-size:13px;line-height:1.3;border:1px solid #cfd4dc;white-space:nowrap' });
-    const sw = () => {
-      swatch.style.background = r.card_color1 ? `linear-gradient(135deg,${r.card_color1},${r.card_color2 || r.card_color1})` : '#f1f3f6';
-      swatch.style.color = r.card_color1 ? '#fff' : '#333'; swatch.replaceChildren(el('span', { style: `color:${r.star_color};text-shadow:0 0 1px rgba(0,0,0,.5)` }, '★'.repeat(i + 1)), ` ${r.title}`);
-    };
-    sw();
-    return el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0;border-top:1px solid #eceff3' }, el('b', { style: 'width:18px' }, String(i + 1)), t, n, el('span', { className: 'hint' }, '回以上'), el('span', { className: 'hint' }, '☆'), sc, el('label', { className: 'hint', style: 'display:inline-flex;align-items:center;gap:3px' }, on, 'カード色'), c1, c2, swatch,
-      i === 0 ? null : btn('×', () => { st.ranks.splice(i, 1); draw(); }, 'sm'));
+  const st = { enabled: cfg.enabled, show_next: cfg.show_next !== false, ranks: structuredClone(cfg.ranks) };
+  // 色の確認用プレビュー: 会員証の実物と同じ描画で、ランクごとのカードを並べる
+  const design = structuredClone(cfg.design), imgs = {};
+  const load = async (id) => { if (!id) return null; try { return await loadImage(URL.createObjectURL(await api(`/card/assets/${id}`, { blob: true }))); } catch { return null; } };
+  [imgs.logo, imgs.bg] = await Promise.all([load(design.logo.imageId), load(design.background.imageId)]);
+  if (design.background.type === 'image' && !imgs.bg) design.background = { ...design.background, type: 'gradient', color1: '#14213d', color2: '#233a6b' };
+  const previewBox = el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px' });
+  const drawPreview = () => previewBox.replaceChildren(...st.ranks.map((r, i) => {
+    const c = document.createElement('canvas'); c.style.cssText = 'width:100%;height:auto;display:block;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+    drawCard(c, design, { shop: cfg.shop ?? ST.me.tenantName ?? '', name: '山田 太郎', nameParts: { family: '山田', given: '太郎' }, memberNumber: '000123', registeredAt: new Date().toISOString(), lastVisitAt: new Date().toISOString(), visitCount: r.min_visits,
+      rank: { title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color, color1: r.card_color1, color2: r.card_color2 } }, { logo: imgs.logo, bg: imgs.bg });
+    return el('div', {}, c, el('div', { className: 'hint', style: 'text-align:center;margin-top:3px' }, `${i + 1}. ${r.title || ''}(${r.min_visits}回〜)`));
   }));
-  draw();
+  const list = el('div');
+  const lbl = (t) => el('span', { className: 'hint', style: 'white-space:nowrap' }, t);
+  const CS = 'width:34px;height:28px;padding:0;flex:none;border:1px solid #cfd4dc;border-radius:6px;background:none';
+  const changed = () => { drawPreview(); };
+  const draw = () => { list.replaceChildren(...st.ranks.map((r, i) => {
+    const t = el('input', { type: 'text', value: r.title, maxLength: 12, placeholder: '称号', style: 'width:120px;flex:none;padding:5px 8px', oninput: () => { r.title = t.value; changed(); } });
+    const n = el('input', { type: 'number', min: 0, value: r.min_visits, disabled: i === 0, style: 'width:70px;flex:none;padding:5px 8px', oninput: () => { r.min_visits = Number(n.value); changed(); } });
+    const dd = el('input', { type: 'number', min: 1, max: 3650, value: r.demote_days ?? '', disabled: i === 0, placeholder: 'なし', style: 'width:70px;flex:none;padding:5px 8px', oninput: () => { r.demote_days = dd.value === '' ? '' : Number(dd.value); } });
+    const sc = el('input', { type: 'color', value: r.star_color, style: CS, oninput: () => { r.star_color = sc.value; changed(); } });
+    const on = el('input', { type: 'checkbox', checked: !!r.card_color1, style: 'width:auto;margin:0', onchange: () => { if (on.checked) { r.card_color1 = c1.value; r.card_color2 = c2.value; } else { r.card_color1 = ''; r.card_color2 = ''; } c1.disabled = c2.disabled = !on.checked; c1.style.opacity = c2.style.opacity = on.checked ? 1 : .35; changed(); } });
+    const c1 = el('input', { type: 'color', value: r.card_color1 || '#222222', disabled: !r.card_color1, style: CS + (r.card_color1 ? '' : ';opacity:.35'), oninput: () => { r.card_color1 = c1.value; changed(); } });
+    const c2 = el('input', { type: 'color', value: r.card_color2 || r.card_color1 || '#444444', disabled: !r.card_color1, style: CS + (r.card_color1 ? '' : ';opacity:.35'), oninput: () => { r.card_color2 = c2.value; changed(); } });
+    const line = (...c) => el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px' }, ...c);
+    return el('div', { style: 'padding:8px 0;border-top:1px solid #eceff3' },
+      line(el('b', { style: 'width:20px' }, String(i + 1)), t, n, lbl('回の来店から'), i === 0 ? null : el('span', { style: 'display:inline-flex;align-items:center;gap:6px;margin-left:8px' }, lbl('最終来店から'), dd, lbl('日で1つ下がる')), el('span', { className: 'sp' }), i === 0 ? null : btn('×', () => { st.ranks.splice(i, 1); draw(); changed(); }, 'sm')),
+      line(el('span', { style: 'width:20px' }), lbl('★の色'), sc, el('label', { style: 'display:inline-flex;align-items:center;gap:5px;margin-left:10px' }, on, lbl('カードの色を変える')), lbl('左上'), c1, lbl('右下'), c2));
+  })); };
+  draw(); drawPreview();
   const enabled = el('input', { type: 'checkbox', checked: st.enabled, style: 'width:auto;margin:0', onchange: () => { st.enabled = enabled.checked; } });
-  const add = () => { if (st.ranks.length >= 10) return; const last = st.ranks.at(-1); st.ranks.push({ title: `ランク${st.ranks.length + 1}`, min_visits: (last?.min_visits ?? 0) + 10, star_color: '#f5b301', card_color1: '', card_color2: '' }); draw(); };
-  const save = run(err, async () => { ok.textContent = ''; const r = await api('/ranks', { method: 'PUT', body: { enabled: st.enabled, ranks: st.ranks.map((x) => ({ ...x, min_visits: Number(x.min_visits) })) } }); st.ranks = structuredClone(r.ranks); draw(); ok.textContent = '保存しました'; });
-  layout(el('div', { className: 'card' }, el('h2', {}, '会員ランク'),
-    el('div', { className: 'hint', style: 'margin-bottom:8px' }, '来店回数に応じて、会員証に称号と★(ランクが上がるごとに1つ増える)が出ます。ランクごとに★の色と、カードの色も変えられます(背景が画像のカードは色が変わりません)。'),
-    el('label', { style: 'display:inline-flex;align-items:center;gap:8px;margin:4px 0 8px;cursor:pointer' }, el('span', { style: 'display:inline-flex' }, enabled), el('b', {}, '会員ランクを有効にする')),
-    list, el('div', { className: 'row', style: 'margin-top:8px' }, btn('＋ ランクを追加', add, 'sm'), btn('初期値に戻す', () => { st.ranks = DEFAULTS.map(([title, min_visits, star_color]) => ({ title, min_visits, star_color, card_color1: '', card_color2: '' })); draw(); }, 'sm'), el('span', { className: 'sp' }), btn('保存', save, 'pri')), err, ok));
+  const showNext = el('input', { type: 'checkbox', checked: st.show_next, style: 'width:auto;margin:0', onchange: () => { st.show_next = showNext.checked; } });
+  const add = () => { if (st.ranks.length >= 10) return; const last = st.ranks.at(-1); st.ranks.push({ title: `ランク${st.ranks.length + 1}`, min_visits: (last?.min_visits ?? 0) + 10, star_color: '#f5b301', card_color1: '', card_color2: '', demote_days: '' }); draw(); changed(); };
+  const save = run(err, async () => { ok.textContent = ''; const r = await api('/ranks', { method: 'PUT', body: { enabled: st.enabled, show_next: st.show_next, ranks: st.ranks.map((x) => ({ ...x, min_visits: Number(x.min_visits), demote_days: x.demote_days === '' || x.demote_days === undefined ? '' : Number(x.demote_days) })) } }); st.ranks = structuredClone(r.ranks); draw(); drawPreview(); ok.textContent = '保存しました'; });
+  const chk = (box, text) => el('label', { style: 'display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer' }, box, text);
+  layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '会員ランク'),
+    el('div', { className: 'hint', style: 'margin-bottom:8px' }, '来店回数に応じて、会員証に称号と★(ランクが上がるごとに1つ増える)が出ます。ランクごとに★の色とカードの色を変えられます(背景が画像のカードは色が変わりません)。'),
+    chk(enabled, el('b', {}, '会員ランクを有効にする')), chk(showNext, '会員画面に「次のランクまであと○回」を表示する'),
+    el('div', { className: 'hint', style: 'margin-top:6px' }, '「最終来店から○日で1つ下がる」を入れると、その日数を超えて来店がないとき、1つ下のランクになります(来店するとすぐに戻ります)。空欄ならランクダウンしません。'),
+    list, el('div', { className: 'row', style: 'margin-top:8px' }, btn('＋ ランクを追加', add, 'sm'), btn('初期値に戻す', () => { st.ranks = DEFAULTS.map(([title, min_visits, star_color]) => ({ title, min_visits, star_color, card_color1: '', card_color2: '', demote_days: '' })); draw(); changed(); }, 'sm'), el('span', { className: 'sp' }), btn('保存', save, 'pri')), err, ok),
+    el('div', { className: 'card' }, el('h2', {}, 'プレビュー(ランクごとの会員証)'), el('div', { className: 'hint', style: 'margin-bottom:8px' }, '色を変えると、すぐに反映されます。「左上」「右下」は、カードの背景のグラデーションの両端の色です。'), previewBox)));
 }
 
 // ---------- 運営: 店舗ごとの機能設定 ----------

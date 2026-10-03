@@ -37,3 +37,11 @@ test('会員証の氏名: 氏名の列が空でも「名前」項目の値を使
   assert.equal(app.members.cardName(T, app.members.findByUser(T, 'U9')), 'たろう');
   assert.equal(app.members.cardName(T, { ...app.members.findByUser(T, 'U9'), name: '山田' }), '山田');
 });
+
+test('カードの氏名の並び順: 設定の検証と既定値', async () => {
+  const { DEFAULT_DESIGN } = await import('../src/card.js');
+  const { app } = env();
+  assert.equal(DEFAULT_DESIGN.fields.nameOrder, 'asis');
+  assert.equal(app.card.save(ADMIN_A, T, { fields: { name: true, nameOrder: 'swap' } }).design.fields.nameOrder, 'swap');
+  assert.throws(() => app.card.save(ADMIN_A, T, { fields: { nameOrder: 'x' } }), (e) => e.details.some((m) => /並び順/.test(m)));
+});

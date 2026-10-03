@@ -401,7 +401,8 @@ async function cardView() {
         lab('店舗名の大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => design.shopName.size, (v) => { design.shopName.size = v; })),
         lab('店舗名の位置', bindSelect([['left', '左'], ['center', '中央']], () => design.shopName.align, (v) => { design.shopName.align = v; })),
         lab('カードのタイトル', bindText(() => design.title, (v) => { design.title = v; }, 'MEMBER CARD', 24, 'title'))),
-      sec('カードに表示する項目', el('div', { className: 'hint' }, '会員番号は常に表示されます。'), bindCheck('氏名', () => design.fields.name, (v) => { design.fields.name = v; }), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
+      sec('カードに表示する項目', el('div', { className: 'hint' }, '会員番号は常に表示されます。'), bindCheck('氏名', () => design.fields.name, (v) => { design.fields.name = v; }),
+        lab('氏名の並び順', bindSelect([['asis', '登録されたとおり(例: 山田 太郎)'], ['swap', '姓と名を入れ替える(例: 太郎 山田)']], () => design.fields.nameOrder ?? 'asis', (v) => { design.fields.nameOrder = v; }), '姓と名の間に空白があるときに入れ替わります。空白のない名前はそのまま表示します。'), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
         bindCheck('最終来店日', () => design.fields.lastVisit, (v) => { design.fields.lastVisit = v; }), bindCheck('来店回数', () => design.fields.visitCount, (v) => { design.fields.visitCount = v; }),
         lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)']], () => design.qr, (v) => { design.qr = v; }), 'カードの中に入れると、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。')),
       sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; })), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),
@@ -417,7 +418,7 @@ async function cardView() {
     design = r.design; dirty = false; state.textContent = ''; ok.textContent = `保存しました(会員の画面に反映されます / v${r.version})`; drawControls(); redraw();
   });
   const reset = () => { if (!confirm('デザインを初期状態に戻します(保存するまで反映されません)。')) return; design = { ...structuredClone(PRESETS.classic.design), template: 'classic', background: { ...PRESETS.classic.design.background, imageId: null }, logo: { imageId: null, position: 'top-left', size: 'M' },
-      shopName: { show: true, text: '', size: 'M', align: 'left' }, title: 'MEMBER CARD', fields: { name: true, registeredAt: false, lastVisit: true, visitCount: true }, qr: 'below', page: { ...PRESETS.classic.design.page, welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true } }; touch(false); drawControls(); };
+      shopName: { show: true, text: '', size: 'M', align: 'left' }, title: 'MEMBER CARD', fields: { name: true, nameOrder: 'asis', registeredAt: false, lastVisit: true, visitCount: true }, qr: 'below', page: { ...PRESETS.classic.design.page, welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true } }; touch(false); drawControls(); };
   const download = () => canvas.toBlob((b) => { const a = el('a', { href: URL.createObjectURL(b), download: 'member-card.png' }); document.body.append(a); a.click(); a.remove(); }, 'image/png');
 
   drawControls(); await redraw();

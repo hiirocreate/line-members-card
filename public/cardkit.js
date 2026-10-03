@@ -76,6 +76,8 @@ function drawBackground(ctx, bg, images) {
   ctx.fillStyle = shine; ctx.fillRect(0, 0, CARD_W, CARD_H);
 }
 
+// 氏名の並び順: 'swap' は、空白で区切られた姓と名を入れ替える (山田 太郎 → 太郎 山田)。空白がなければそのまま
+export const formatName = (name, order) => { const parts = String(name ?? '').trim().split(/[\s\u3000]+/).filter(Boolean); return order === 'swap' && parts.length > 1 ? parts.reverse().join(' ') : parts.join(' '); };
 // data: { shop, name, memberNumber, registeredAt, lastVisitAt, visitCount }
 // images: { logo, bg } (読み込み済みの Image)。qr: canvas (qr==='inside' のときのみ描画)
 // privacy: true のとき、氏名・来店情報を出さず、会員番号を伏せ、QRの代わりに「非表示」の枠を描く (人に画面を見られるとき用)
@@ -125,7 +127,7 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
   ctx.globalAlpha = 0.9;
   for (let i = lines.length - 1; i >= 0; i--) { ctx.fillText(fit(ctx, lines[i], textMaxW), P, y); y -= 44; }
   ctx.globalAlpha = 1;
-  if (!privacy && design.fields.name && data.name) { ctx.font = `600 44px ${font}`; ctx.fillText(fit(ctx, data.name, textMaxW), P, y); y -= 70; }
+  if (!privacy && design.fields.name && data.name) { ctx.font = `600 44px ${font}`; ctx.fillText(fit(ctx, formatName(data.name, design.fields.nameOrder), textMaxW), P, y); y -= 70; }
   ctx.font = `700 84px ${font}`; ctx.fillStyle = tc; spaced(ctx, privacy ? maskNumber(data.memberNumber) : String(data.memberNumber ?? ''), P, y, 8);
   ctx.font = `500 24px ${font}`; ctx.globalAlpha = 0.8; spaced(ctx, 'MEMBER No.', P, y - 84 - 14, 3); ctx.globalAlpha = 1;
 

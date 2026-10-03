@@ -45,3 +45,14 @@ test('カードの氏名の並び順: 設定の検証と既定値', async () => 
   assert.equal(app.card.save(ADMIN_A, T, { fields: { name: true, nameOrder: 'swap' } }).design.fields.nameOrder, 'swap');
   assert.throws(() => app.card.save(ADMIN_A, T, { fields: { nameOrder: 'x' } }), (e) => e.details.some((m) => /並び順/.test(m)));
 });
+
+test('姓・名が別項目でもカードに出せる(parts)・誕生日配信の名前にも使われる', () => {
+  const app = createApp(null, { secret: 'c'.repeat(40) });
+  app.forms.createTenant(OP, T, 'テスト店');
+  const ln = app.forms.addFromMaster(ADMIN_A, T, 'last_name').field_id, fn = app.forms.addFromMaster(ADMIN_A, T, 'first_name').field_id;
+  app.members.register(T, 'U1', { [ln]: '山田', [fn]: '太郎' }, { confirmed: true });
+  const m = app.members.findByUser(T, 'U1');
+  assert.deepEqual(app.members.cardNameParts(T, m), { family: '山田', given: '太郎' });
+  assert.equal(app.members.cardName(T, m), '山田 太郎');
+  assert.equal(app.members.cardNameParts(T, { ...m, member_id: 'none' }), null);
+});

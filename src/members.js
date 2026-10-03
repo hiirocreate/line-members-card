@@ -127,6 +127,14 @@ export class MemberService {
     audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: 'MEMBER_PREFS_CHANGE', target: m.member_id, detail: next });
     return next;
   }
+  // 姓・名が別項目のとき: { family, given } (どちらも無ければ null)。マスタの「姓」「名」、または項目名が「姓」「名」の項目を使う
+  cardNameParts(tenantId, m) {
+    const fields = this.forms.fields(tenantId), vals = this.#valuesOf(tenantId, m.member_id);
+    const pick = (key, re) => fields.find((f) => f.master_key === key) ?? fields.find((f) => !f.master_key && f.field_type === 'TEXT' && re.test(f.field_name.trim()));
+    const val = (f) => { const v = f ? this.#read(m, f, vals) : null; return typeof v === 'string' ? v.trim() : ''; };
+    const family = val(pick('last_name', /^(姓|苗字|名字|氏|せい|セイ)$/)), given = val(pick('first_name', /^(名|めい|メイ)$/));
+    return family || given ? { family, given } : null;
+  }
   // 会員証に出す氏名: 氏名項目(コア列)が空なら、「氏名/名前」という名前の文字項目の値を使う
   cardName(tenantId, m) {
     if (m.name) return m.name;
@@ -135,7 +143,8 @@ export class MemberService {
       const v = this.#read(m, f, vals);
       if (typeof v === 'string' && v) return v;
     }
-    return '';
+    const p = this.cardNameParts(tenantId, m);
+    return p ? [p.family, p.given].filter(Boolean).join(' ') : '';
   }
 
   // ---- 退会 (削除せず status=WITHDRAWN。データは保持し、配信同意は取り消す) ----

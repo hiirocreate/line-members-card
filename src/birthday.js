@@ -95,7 +95,7 @@ export class BirthdayService {
       const batch = plan.targets.slice(0, CAP), r = { matched: plan.matched, target: batch.length, sent: 0, failed: 0, granted: 0, skipped: plan.skipped, deferred: plan.targets.length - batch.length, errors: [] };
       for (const { m, year } of batch) {
         const messages = [];
-        const text = cfg.message_text.replaceAll('{名前}', m.name || 'お客');
+        const text = cfg.message_text.replaceAll('{名前}', this.members.cardName(tenantId, m) || 'お客');
         if (text) messages.push({ type: 'text', text });
         if (coupon) messages.push(couponFlex({ shop, coupon, url, untilText: this.coupons.untilText(coupon, nowMs, cfg.coupon_days || null) }));
         try { await push(messagingToken, m.user_id, messages, this.fetchImpl); }

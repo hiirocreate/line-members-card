@@ -321,7 +321,7 @@ async function cardView() {
   let design = structuredClone(server.design), dirty = false;
   const images = {}; // assetId -> Image (管理画面のプレビュー用)
   const getImage = async (id) => { if (!id) return null; if (!images[id]) { try { images[id] = await loadImage(URL.createObjectURL(await api(`/card/assets/${id}`, { blob: true }))); } catch { images[id] = null; } } return images[id]; };
-  const sample = { shop: server.tenantName, name: '山田 太郎', memberNumber: '000123', registeredAt: '2026-04-01T00:00:00Z', lastVisitAt: new Date().toISOString(), visitCount: 12 };
+  const sample = { shop: server.tenantName, name: '山田 太郎', nameParts: { family: '山田', given: '太郎' }, memberNumber: '000123', registeredAt: '2026-04-01T00:00:00Z', lastVisitAt: new Date().toISOString(), visitCount: 12 };
   const qr = makeQr('PREVIEW-SAMPLE', 190);
   const canvas = el('canvas', { className: 'card-canvas', style: 'width:100%;height:auto;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.25))' });
   // プレビューのカードをクリックすると、その部分の入力欄へ移動する (店舗名・タイトル)
@@ -402,7 +402,7 @@ async function cardView() {
         lab('店舗名の位置', bindSelect([['left', '左'], ['center', '中央']], () => design.shopName.align, (v) => { design.shopName.align = v; })),
         lab('カードのタイトル', bindText(() => design.title, (v) => { design.title = v; }, 'MEMBER CARD', 24, 'title'))),
       sec('カードに表示する項目', el('div', { className: 'hint' }, '会員番号は常に表示されます。'), bindCheck('氏名', () => design.fields.name, (v) => { design.fields.name = v; }),
-        lab('氏名の並び順', bindSelect([['asis', '登録されたとおり(例: 山田 太郎)'], ['swap', '姓と名を入れ替える(例: 太郎 山田)']], () => design.fields.nameOrder ?? 'asis', (v) => { design.fields.nameOrder = v; }), '姓と名の間に空白があるときに入れ替わります。空白のない名前はそのまま表示します。'), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
+        lab('氏名の並び順', bindSelect([['asis', '登録されたとおり(例: 山田 太郎)'], ['swap', '姓と名を入れ替える(例: 太郎 山田)']], () => design.fields.nameOrder ?? 'asis', (v) => { design.fields.nameOrder = v; }), '姓と名が別の項目(マスタの「姓」「名」)のときは、その2項目を並べ替えて表示します。1つの氏名項目のときは、姓と名の間に空白があるときだけ入れ替わります。'), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
         bindCheck('最終来店日', () => design.fields.lastVisit, (v) => { design.fields.lastVisit = v; }), bindCheck('来店回数', () => design.fields.visitCount, (v) => { design.fields.visitCount = v; }),
         lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)']], () => design.qr, (v) => { design.qr = v; }), 'カードの中に入れると、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。')),
       sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; })), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),

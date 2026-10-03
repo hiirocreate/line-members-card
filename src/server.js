@@ -117,7 +117,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents,
-          card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), card_data: { name: app.members.cardName(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
+          card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
       if (rest === 'coupons' || rest === 'coupon') { // クーポン (会員本人・有効な会員のみ)

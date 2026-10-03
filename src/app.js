@@ -9,6 +9,8 @@ import { CardService } from './card.js';
 import { CouponService } from './coupons.js';
 import { BirthdayService } from './birthday.js';
 import { VisitRuleService } from './visitrules.js';
+import { RankService } from './ranks.js';
+import { ScheduleService } from './schedules.js';
 
 // secret: 署名/暗号化鍵の元 (本番は SESSION_SECRET)。未指定なら起動ごとのランダム値 (開発・テスト用)。
 export function createApp(fileOrStore = null, { secret = randomBytes(32).toString('hex'), dataKey = null, fetchImpl = fetch } = {}) {
@@ -22,5 +24,6 @@ export function createApp(fileOrStore = null, { secret = randomBytes(32).toStrin
   messaging.coupons = coupons; // クーポンの添付・付与
   const birthday = new BirthdayService(store, vault, members, coupons, fetchImpl);
   const visitRules = new VisitRuleService(store, vault, members, coupons, fetchImpl);
-  return { store, vault, forms, members, card: new CardService(store), coupons, messaging, birthday, visitRules, fetchImpl };
+  const ranks = new RankService(store), schedules = new ScheduleService(store, members, messaging);
+  return { store, vault, forms, members, card: new CardService(store), coupons, messaging, birthday, visitRules, ranks, schedules, fetchImpl };
 }

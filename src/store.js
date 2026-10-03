@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 // シートごとのヘッダー。配列/オブジェクト列は JSON 文字列でセルに保存する。
 export const SHEETS = {
-  tenants: ['tenant_id', 'name', 'status', 'form_version', 'created_at', 'liff_id', 'login_channel_id', 'messaging_token', 'shopcard_url', 'require_friend', 'friend_url'],
+  tenants: ['tenant_id', 'name', 'status', 'form_version', 'created_at', 'liff_id', 'login_channel_id', 'messaging_token', 'shopcard_url', 'require_friend', 'friend_url', 'features'],
   tenant_urls: ['token', 'tenant_id', 'enabled', 'created_at'],
   members: ['member_id', 'tenant_id', 'user_id', 'member_number', 'name', 'phone', 'email',
     'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version', 'withdrawn_at', 'withdraw_reason', 'notify_prefs'],
@@ -28,13 +28,15 @@ export const SHEETS = {
   birthday_sends: ['tenant_id', 'member_id', 'year', 'sent_at', 'coupon_granted'],
   visit_rules: ['rule_id', 'tenant_id', 'name', 'enabled', 'visits', 'repeat', 'message_text', 'coupon_id', 'coupon_days', 'valid_from', 'valid_until', 'created_by', 'created_at', 'updated_at'],
   visit_rule_sends: ['rule_id', 'tenant_id', 'member_id', 'visit_count', 'sent_at', 'status', 'coupon_granted'],
+  member_ranks: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
+  scheduled_messages: ['schedule_id', 'tenant_id', 'name', 'enabled', 'kind', 'run_date', 'weekday', 'day_of_month', 'time', 'message_text', 'coupon_id', 'coupon_days', 'where', 'created_by', 'created_at', 'updated_at', 'last_run_key', 'last_result'],
   card_designs: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
   card_assets: ['asset_id', 'tenant_id', 'kind', 'mime', 'chunk', 'total', 'size', 'data', 'created_at'],
   password_resets: ['token_hash', 'admin_id', 'expires_at', 'used', 'created_by', 'created_at'],
   visits: ['visit_id', 'tenant_id', 'member_id', 'visited_at', 'method', 'recorded_by'],
   messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at', 'coupon_id'],
 };
-const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result', 'notify_prefs']);
+const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result', 'notify_prefs', 'features', 'where']);
 
 export class Store {
   constructor(file = null) {

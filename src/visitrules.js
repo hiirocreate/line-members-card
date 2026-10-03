@@ -8,6 +8,7 @@ import { resolveLine } from './settings.js';
 import { push, couponFlex } from './line.js';
 import { parseDays } from './coupons.js';
 import { jstParts } from './dates.js';
+import { featureOn } from './features.js';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const today = (ms) => { const p = jstParts(ms); return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`; };
@@ -75,6 +76,7 @@ export class VisitRuleService {
   async onVisit(tenantId, memberId, nowMs = Date.now()) {
     const out = [];
     try {
+      if (!featureOn(this.store, tenantId, 'visitrules')) return out;
       const m = this.store.find('members', (x) => x.tenant_id === tenantId && x.member_id === memberId);
       if (!m || (m.status || 'ACTIVE') !== 'ACTIVE') return out;
       const count = Number(m.visit_count) || 0, day = today(nowMs);

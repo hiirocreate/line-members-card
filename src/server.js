@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { FEATURES, featureOn, featureMap, setFeatures, featureForPath } from './features.js';
 // HTTP サーバ: 会員向け(LIFF/ミニアプリ)API・管理API・静的ファイル。
 // 店舗の特定: 会員側は URL 内 token (サーバ検証)、管理側はログインした管理者の tenant_id (リクエスト値は信用しない)。
 import http from 'node:http';
@@ -114,13 +115,15 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         if (!member) return send(res, 200, { registered: false, shop });
         if (member.status === 'WITHDRAWN') return send(res, 200, { registered: false, withdrawn: true, shop });
         const p = app.members.profile(null, tenantId, member.member_id);
+        const rank = featureOn(app.store, tenantId, 'rank') ? app.ranks.forVisits(tenantId, member.visit_count) : null;
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents,
-          card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
+          card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), rank, card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
       if (rest === 'coupons' || rest === 'coupon') { // クーポン (会員本人・有効な会員のみ)
+        if (!featureOn(app.store, tenantId, 'coupons')) return send(res, 403, { error: 'クーポンはご利用できません' });
         const mem = app.members.findByUser(tenantId, userId);
         if (!mem || mem.status === 'WITHDRAWN') throw new ValidationError('会員登録が必要です');
         if (req.method === 'GET' && rest === 'coupons') return send(res, 200, { coupons: app.coupons.memberList(tenantId, mem.member_id) });
@@ -172,6 +175,8 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     // 店舗管理者/スタッフは自分の tenant_id に固定。運営のみ ?tenant= で対象店舗を指定できる。
     const tenant = isOp ? url.searchParams.get('tenant') : actor.tenantId;
     const needTenant = () => { if (!tenant) throw new ValidationError('tenant を指定してください'); return tenant; };
+    const fk = featureForPath(path); // 運営が店舗ごとにオフにした機能は、その店舗の管理者・スタッフには使わせない
+    if (fk && !isOp && !featureOn(app.store, actor.tenantId, fk)) throw new Forbidden('この機能は、ご契約の範囲に含まれていません');
     const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await readBody(req, path === '/card/assets' ? 700_000 : 200_000) : {};
     const f = app.forms, mm = app.members;
     let m;
@@ -180,9 +185,9 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
 
     if (path === '/me' && req.method === 'GET') {
       const t = actor.tenantId && app.store.find('tenants', (x) => x.tenant_id === actor.tenantId);
-      return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)) });
+      return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)), features: isOp || !actor.tenantId ? featureMap(app.store, null) : featureMap(app.store, actor.tenantId) });
     }
-    if (isOp && path === '/tenants' && req.method === 'GET') return ok({ tenants: app.store.select('tenants').map(({ tenant_id, name, status }) => ({ tenant_id, name, status })) });
+    if (isOp && path === '/tenants' && req.method === 'GET') return ok({ tenants: app.store.select('tenants').map(({ tenant_id, name, status }) => ({ tenant_id, name, status, features: featureMap(app.store, tenant_id) })) });
     if (path === '/admins' && req.method === 'GET') return ok({ admins: listAdmins(app.store, actor) });
     if ((m = /^\/admins\/([\w-]+)\/reset-2fa$/.exec(path)) && req.method === 'POST') { resetTwoFactor(app.store, actor, m[1]); return ok(); }
     if ((m = /^\/admins\/([\w-]+)\/reset-link$/.exec(path)) && req.method === 'POST') { const r = issueResetToken(app.store, actor, m[1]); return ok({ ...r, path: `/admin#reset=${r.token}` }, 201); }
@@ -270,6 +275,14 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     // メッセージ配信 (LINE配信に同意した有効会員のみ)
     if (path === '/messages/preview' && req.method === 'POST') return ok(app.messaging.preview(actor, needTenant(), body.where, body.couponId));
     if (path === '/messages/send' && req.method === 'POST') return ok(await app.messaging.send(actor, needTenant(), body), 201);
+    if (path === '/schedules' && req.method === 'GET') return ok({ schedules: app.schedules.list(actor, needTenant()) });
+    if (path === '/schedules' && req.method === 'POST') return ok(app.schedules.create(actor, needTenant(), body), 201);
+    if ((m = /^\/schedules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'PUT') return ok(app.schedules.update(actor, needTenant(), m[1], body));
+    if ((m = /^\/schedules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'DELETE') { app.schedules.remove(actor, needTenant(), m[1]); return ok(); }
+    if ((m = /^\/schedules\/([0-9a-f]{32})\/run$/.exec(path)) && req.method === 'POST') return ok(await app.schedules.runNow(actor, needTenant(), m[1]));
+    if (path === '/ranks' && req.method === 'GET') return ok(app.ranks.get(actor, needTenant()));
+    if (path === '/ranks' && req.method === 'PUT') return ok(app.ranks.save(actor, needTenant(), body));
+    if (isOp && (m = /^\/tenants\/([\w-]+)\/features$/.exec(path))) { if (req.method === 'GET') return ok({ features: featureMap(app.store, m[1]), labels: FEATURES }); if (req.method === 'PUT') return ok({ features: setFeatures(app.store, actor, m[1], body) }); }
     if (path === '/birthday' && req.method === 'GET') return ok({ ...app.birthday.get(actor, needTenant()), preview: app.birthday.preview(actor, needTenant()) });
     if (path === '/birthday' && req.method === 'PUT') { const t = needTenant(); const saved = app.birthday.save(actor, t, body); return ok({ ...saved, preview: app.birthday.preview(actor, t) }); }
     if (path === '/birthday/run' && req.method === 'POST') return ok(await app.birthday.run(actor, needTenant(), { force: true }));
@@ -320,12 +333,12 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
       const [file, type] = STATIC[p];
       return send(res, 200, await readFile(PUBLIC_DIR + file), type, { 'content-security-policy': p.startsWith('/admin') ? ADMIN_CSP : APP_CSP });
     }
-    if (p === '/api/cron/birthday' && req.method === 'POST') { // Cloud Scheduler 用 (毎日1回)。CRON_SECRET を Bearer で渡す
+    if ((p === '/api/cron/run' || p === '/api/cron/birthday') && req.method === 'POST') { // Cloud Scheduler 用 (10分おき)。CRON_SECRET を Bearer で渡す
       const got = Buffer.from(req.headers.authorization ?? ''), want = Buffer.from(`Bearer ${cronSecret ?? ''}`);
       if (!cronSecret || got.length !== want.length || !timingSafeEqual(got, want)) return send(res, 401, { error: 'unauthorized' });
-      const results = await app.birthday.runAll();
+      const results = await app.birthday.runAll(Date.now(), { morningOnly: true }), schedules = await app.schedules.runDue();
       await app.store.flush?.();
-      return send(res, 200, { results });
+      return send(res, 200, { results, schedules });
     }
     let m;
     if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+)(?:\/([0-9a-f]{32})(?:\/([a-z]+))?)?)?$/.exec(p))) await publicApi(req, res, url, m[1], m[2], m[3], m[4]);

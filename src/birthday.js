@@ -7,6 +7,7 @@ import { audit } from './audit.js';
 import { resolveLine } from './settings.js';
 import { push, couponFlex } from './line.js';
 import { parseDays } from './coupons.js';
+import { featureOn } from './features.js';
 
 const CAP = 200; // 1回の実行で送る最大人数 (超えた分は翌日に回る)
 export const DEFAULT_TEXT = '{名前}さん、お誕生日おめでとうございます🎂\nいつもご利用ありがとうございます。ささやかですが、お祝いの気持ちをお届けします。';
@@ -66,8 +67,9 @@ export class BirthdayService {
     return this.#run(actor, tenantId, nowMs, force);
   }
   // 全店舗(有効なもの)を実行 — Cloud Scheduler 用
-  async runAll(nowMs = Date.now()) {
+  async runAll(nowMs = Date.now(), { morningOnly = false } = {}) {
     const out = [];
+    if (morningOnly && new Date(nowMs + 9 * 3600_000).getUTCHours() < 9) return out; // 日本時間の朝9時より前には送らない (cronを頻繁に呼んでも深夜に届かない)
     for (const c of this.store.select('birthday_campaigns', (r) => r.enabled === true || r.enabled === 'TRUE')) {
       try { out.push({ tenant_id: c.tenant_id, ...(await this.#run(SYSTEM, c.tenant_id, nowMs, false)) }); } catch (e) { out.push({ tenant_id: c.tenant_id, error: e.message }); }
     }
@@ -75,6 +77,7 @@ export class BirthdayService {
   }
 
   async #run(actor, tenantId, nowMs, force) {
+    if (!featureOn(this.store, tenantId, 'birthday')) throw new ValidationError('この機能はご利用できません');
     const cfg = this.get(SYSTEM, tenantId);
     if (!cfg.enabled && !force) throw new ValidationError('誕生日配信がオフです');
     if (this.running.has(tenantId)) throw new ValidationError('実行中です');

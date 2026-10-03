@@ -6,6 +6,7 @@ import { audit } from './audit.js';
 import { resolveLine } from './settings.js';
 import { multicast, couponFlex } from './line.js';
 import { parseDays } from './coupons.js';
+import { featureOn } from './features.js';
 
 export class MessagingService {
   constructor(store, vault, members, fetchImpl = fetch) { Object.assign(this, { store, vault, members, fetchImpl }); }
@@ -25,11 +26,12 @@ export class MessagingService {
 
   // expectedCount: 確認画面で見せた人数。確認後に対象が変わっていたら送らない。
   // couponId: クーポンを添付する場合。クーポンのカード(Flex)を添え、届いた会員にだけクーポンを付与する。
-  async send(actor, tenantId, { text, where, expectedCount, couponId, couponDays }) {
+  async send(actor, tenantId, { text, where, expectedCount, couponId, couponDays, auto = false }) {
     const days = couponId ? parseDays(couponDays) : null;
     require_(actor, 'MESSAGE_SEND', tenantId);
     const body = typeof text === 'string' ? text.trim() : '';
     if (body.length > 5000) throw new ValidationError('メッセージは5000文字以内です');
+    if (couponId && !featureOn(this.store, tenantId, 'coupons')) throw new ValidationError('クーポン機能はご利用できません');
     const coupon = couponId ? this.coupons.assertOfferable(tenantId, couponId) : null; // 期限切れ・終了済みは添付できない
     if (!body && !coupon) throw new ValidationError('メッセージを入力してください(クーポンだけの配信もできます)');
     const { messagingToken } = resolveLine(this.store, this.vault, tenantId);
@@ -42,7 +44,7 @@ export class MessagingService {
     }
     const { userIds, memberByUser } = this.audience(actor, tenantId, where, coupon ? 'coupon' : 'news');
     if (!userIds.length) throw new ValidationError('配信対象の会員がいません');
-    if (expectedCount !== userIds.length) throw new ValidationError(`配信対象が変わりました(現在 ${userIds.length}人)。再度確認してください`);
+    if (!auto && expectedCount !== userIds.length) throw new ValidationError(`配信対象が変わりました(現在 ${userIds.length}人)。再度確認してください`);
     const row = { message_id: randomUUID(), tenant_id: tenantId, created_by: actor.id, text: body || `(クーポン) ${coupon.title}`, audience: userIds.length, sent: 0, failed: 0, errors: [], status: 'SENDING', created_at: new Date().toISOString(), coupon_id: coupon?.coupon_id ?? '' };
     this.store.insert('messages', row);
     let r, granted = 0;

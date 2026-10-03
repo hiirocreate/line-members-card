@@ -98,7 +98,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     const f = app.forms, mm = app.members;
     let m;
     const ok = (obj = { ok: true }, code = 200) => send(res, code, obj);
-    const miniUrl = (tid, token) => { const id = resolveLine(app.store, app.vault, tid, defaults).liffId; return id ? `https://miniapp.line.me/${id}?t=${token}` : null; };
+    const miniUrl = (tid, token) => { const id = resolveLine(app.store, app.vault, tid, defaults).liffId; return id ? `https://liff.line.me/${id}?t=${token}` : null; };
 
     if (path === '/me' && req.method === 'GET') {
       const t = actor.tenantId && app.store.find('tenants', (x) => x.tenant_id === actor.tenantId);

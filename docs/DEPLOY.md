@@ -10,7 +10,7 @@
 1. LINE Developers で「LINEログイン」チャネルを作成 → **チャネルID** = `LINE_LOGIN_CHANNEL_ID`。
 2. LIFF アプリ (LINEミニアプリ) を作成。エンドポイントURL = `https://<Cloud RunのURL>/app`。スコープは `openid`(必須)。→ **LIFF ID** = `LIFF_ID`。
 3. 各店舗の公式アカウントのリッチメニューに、管理API `POST /api/admin/registration-url` が返す URL
-   (`https://miniapp.line.me/<LIFF_ID>?t=<店舗token>`) を設定する。token が漏れた場合は `DELETE /api/admin/registration-url/<token>` で無効化し再発行。
+   (`https://liff.line.me/<LIFF_ID>?t=<店舗token>`) を設定する。token が漏れた場合は `DELETE /api/admin/registration-url/<token>` で無効化し再発行。
 4. 別法人の公式アカウントとミニアプリのプロバイダーの関係は LINE の仕様に従う。導入前に、各社の公式アカウントからこのURLを開けること・userId が取得できることを実機で確認する。
 
 ## 3. Cloud Run
@@ -33,7 +33,8 @@ gcloud run deploy line-members --source . --region asia-northeast1 \
 ## 5. 店舗ごとのLINE連携 (管理画面「LINE連携」タブ)
 別法人の店舗は、**店舗の公式アカウントと同じプロバイダー内**に次を作成してもらい、値を設定する。
 - LINEログインチャネル (→ チャネルID) と LIFF アプリ (→ LIFF ID、エンドポイントURL = `https://<Cloud RunのURL>/app`)
-- 公式アカウントの Messaging API チャネルのチャネルアクセストークン (長期) → メッセージ配信に使用 (暗号化保存・画面には再表示されない)
+- 公式アカウントの Messaging API チャネルのチャネルアクセストークン (長期) → メッセージ配信に使用 (暗号化保存・画面には再表示されない)。Messaging API チャネルはコンソールから直接は作れない(2024-09-04〜)。LINE公式アカウントを作成し、LINE Official Account Manager で Messaging API を有効化する際に、ログインチャネルと同じプロバイダーを選ぶ(後から変更不可)。
+- 会員にメッセージが届くのは、公式アカウントを友だち追加していてブロックしていない場合のみ。LIFF の「Add friend option」を有効にしておく。
 - 公式LINEの「ショップカード」の配布URL (`https://lin.ee/...` 等) → 会員証の「ショップカードを開く」ボタン。LINEドメインのURLのみ設定可
 - 注意: プロバイダーが異なると、ミニアプリで取得するユーザーIDと Messaging API のユーザーIDが一致せず、配信できない。
 - 配信は LINE の月間メッセージ数・プランの制限に従う (店舗の公式アカウントの契約内)。

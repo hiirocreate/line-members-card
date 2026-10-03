@@ -85,7 +85,7 @@ test('管理API: 認証・店舗分離・権限・Excel出力', async () => {
     assert.equal((await call('/api/admin/members/search', { method: 'POST', token: A, body: {} })).json.total, 1);
     // 登録URL発行 (リッチメニュー用)
     const u = (await call('/api/admin/registration-url', { method: 'POST', token: A })).json;
-    assert.match(u.url, /^https:\/\/miniapp\.line\.me\/1234-abcd\?t=[0-9a-f]{32}$/);
+    assert.match(u.url, /^https:\/\/liff\.line\.me\/1234-abcd\?t=[0-9a-f]{32}$/);
     // 管理者無効化は即時反映
     await call(`/api/admin/admins/${app.store.find('admins', (a) => a.email === 's@x.jp').admin_id}/disable`, { method: 'POST', token: O });
     assert.equal((await call('/api/admin/members/search', { method: 'POST', token: S, body: {} })).status, 401);

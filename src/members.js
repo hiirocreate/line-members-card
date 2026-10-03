@@ -183,7 +183,7 @@ export class MemberService {
     const at = now();
     this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === memberId, { visit_count: m.visit_count + 1, last_visit_at: at });
     this.store.insert('visits', { visit_id: randomUUID(), tenant_id: tenantId, member_id: memberId, visited_at: at, method, recorded_by: actor.id });
-    return { member_number: m.member_number, visit_count: m.visit_count + 1 };
+    return { member_number: m.member_number, visit_count: m.visit_count + 1, member_id: memberId };
   }
   visits(actor, tenantId, limit = 50) {
     require_(actor, 'MEMBER_VIEW', tenantId);

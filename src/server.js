@@ -71,7 +71,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     return `https://liff.line.me/${l.liffId}?t=${tok}&coupon=${couponId}`;
   };
 
-  app.birthday.couponUrl = app.messaging.couponUrl;
+  app.birthday.couponUrl = app.visitRules.couponUrl = app.messaging.couponUrl;
 
   // 応答は即送らず保留し、永続化(flush)が終わってから返す
   const pending = new WeakMap();
@@ -276,7 +276,11 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if (path === '/messages' && req.method === 'GET') return ok({ messages: app.messaging.history(actor, needTenant()) });
 
     // 来店 (QRスキャン / 履歴)
-    if (path === '/visits/scan' && req.method === 'POST') return ok(app.members.scanVisit(actor, needTenant(), body.code));
+    if (path === '/visits/scan' && req.method === 'POST') { const t = needTenant(), r = app.members.scanVisit(actor, t, body.code); return ok({ ...r, rewards: await app.visitRules.onVisit(t, r.member_id) }); }
+    if (path === '/visit-rules' && req.method === 'GET') return ok({ rules: app.visitRules.list(actor, needTenant()) });
+    if (path === '/visit-rules' && req.method === 'POST') return ok(app.visitRules.create(actor, needTenant(), body), 201);
+    if ((m = /^\/visit-rules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'PUT') return ok(app.visitRules.update(actor, needTenant(), m[1], body));
+    if ((m = /^\/visit-rules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'DELETE') { app.visitRules.remove(actor, needTenant(), m[1]); return ok(); }
     if (path === '/visits' && req.method === 'GET') return ok({ visits: app.members.visits(actor, needTenant()) });
 
     // 会員
@@ -290,7 +294,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if ((m = /^\/members\/(\w+)$/.exec(path)) && req.method === 'PATCH') { mm.updateByStaff(actor, needTenant(), m[1], body.values ?? {}); return ok(); }
     if ((m = /^\/members\/(\w+)\/withdraw$/.exec(path)) && req.method === 'POST') { mm.withdrawByAdmin(actor, needTenant(), m[1], body.reason); return ok(); }
     if ((m = /^\/members\/(\w+)\/restore$/.exec(path)) && req.method === 'POST') { mm.restore(actor, needTenant(), m[1]); return ok(); }
-    if ((m = /^\/members\/(\w+)\/visit$/.exec(path)) && req.method === 'POST') { mm.recordVisit(actor, needTenant(), m[1]); return ok(); }
+    if ((m = /^\/members\/(\w+)\/visit$/.exec(path)) && req.method === 'POST') { const t = needTenant(), r = mm.recordVisit(actor, t, m[1]); return ok({ rewards: await app.visitRules.onVisit(t, m[1]) }); }
     if (path === '/export' && req.method === 'POST') {
       const opts = { columns: body.columns ?? [], where: body.where, sort: body.sort, status: body.status };
       const stamp = new Date().toISOString().slice(0, 10);

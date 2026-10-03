@@ -97,7 +97,7 @@ function resetView(token) {
 }
 
 // ---------- 共通レイアウト ----------
-const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['schedule', '予約メッセージ'], ['rank', '会員ランク'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
+const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['rank', '会員ランク'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['schedule', '予約メッセージ'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
   const tabs = [...TABS.filter(([k]) => featOn(k) && (['messages', 'birthday', 'visitrules', 'schedule'].includes(k) ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' || k === 'rank' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));

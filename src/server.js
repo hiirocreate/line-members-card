@@ -280,6 +280,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if ((m = /^\/schedules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'PUT') return ok(app.schedules.update(actor, needTenant(), m[1], body));
     if ((m = /^\/schedules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'DELETE') { app.schedules.remove(actor, needTenant(), m[1]); return ok(); }
     if ((m = /^\/schedules\/([0-9a-f]{32})\/run$/.exec(path)) && req.method === 'POST') return ok(await app.schedules.runNow(actor, needTenant(), m[1]));
+    if (path === '/ranks/titles' && req.method === 'GET') return ok({ titles: app.ranks.titles(actor, needTenant()) });
     if (path === '/ranks' && req.method === 'GET') return ok(app.ranks.get(actor, needTenant()));
     if (path === '/ranks' && req.method === 'PUT') return ok(app.ranks.save(actor, needTenant(), body));
     if (isOp && (m = /^\/tenants\/([\w-]+)\/features$/.exec(path))) { if (req.method === 'GET') return ok({ features: featureMap(app.store, m[1]), labels: FEATURES }); if (req.method === 'PUT') return ok({ features: setFeatures(app.store, actor, m[1], body) }); }

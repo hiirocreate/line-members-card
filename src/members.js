@@ -290,6 +290,7 @@ export class MemberService {
     const fieldById = new Map(fields.map((f) => [f.field_id, f]));
     const bday = fields.find((f) => f.master_key === 'birthday' && f.enabled !== false);
     const get = (row, key) => {
+      if (key === 'rank') return this.ranks?.forVisits(tenantId, row.m.visit_count)?.title ?? null; // 会員ランク(称号)
       if (key === 'days_until_birthday') { const b = bday ? this.#read(row.m, bday, row.v) : null; return typeof b === 'string' ? daysUntilBirthday(b)?.days ?? null : null; }
       if (key === 'days_since_last_visit') return row.m.last_visit_at ? Math.floor((Date.now() - Date.parse(row.m.last_visit_at)) / 864e5) : Infinity;
       if (['visit_count', 'registered_at', 'last_visit_at', 'member_number', 'status'].includes(key)) return row.m[key] === '' ? null : row.m[key];

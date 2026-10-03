@@ -85,3 +85,20 @@ test('機能の制限: 運営だけが設定でき、オフの店舗では管理
     assert.equal((await call(`/api/admin/ranks?tenant=${T}`, { token: O })).status, 200); // 運営は常に使える
   } finally { srv.close(); }
 });
+
+test('ランクで絞り込んだ配信(予約メッセージ・メッセージ配信): 該当ランクの会員だけに届く', async () => {
+  const { app, reg, calls } = env();
+  const ranks = [{ title: 'ブロンズ', min_visits: 0, star_color: '#cd7f32' }, { title: 'ゴールド', min_visits: 10, star_color: '#f5b301' }];
+  reg('U1'); reg('U2'); reg('U3');
+  app.store.update('members', (m) => m.user_id === 'U1', { visit_count: 3 }); app.store.update('members', (m) => m.user_id === 'U2', { visit_count: 12 }); app.store.update('members', (m) => m.user_id === 'U3', { visit_count: 40 });
+  const where = { logic: 'AND', conditions: [{ field: 'rank', op: 'eq', value: 'ゴールド' }] };
+  assert.equal(app.messaging.preview(ADMIN_A, T, where).matched, 0); // ランクが無効のあいだは誰も該当しない
+  assert.deepEqual(app.ranks.titles(ADMIN_A, T), []);
+  app.ranks.save(ADMIN_A, T, { enabled: true, ranks });
+  assert.deepEqual(app.ranks.titles(ADMIN_A, T), ['ブロンズ', 'ゴールド']);
+  assert.equal(app.messaging.preview(ADMIN_A, T, where).audience, 2); // U2, U3
+  app.schedules.create(ADMIN_A, T, { name: 'ゴールド限定', kind: 'DAILY', time: '10:00', message_text: 'gold', where });
+  await app.schedules.runDue(at('2026-11-05T10:00:00'));
+  assert.deepEqual(calls.find((c) => c.messages[0].text === 'gold').to.sort(), ['U2', 'U3']);
+  assert.deepEqual(app.members.search(ADMIN_A, T, { where: { logic: 'AND', conditions: [{ field: 'rank', op: 'eq', value: 'ブロンズ' }] } }).members.map((m) => m.user_id), ['U1']);
+});

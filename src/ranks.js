@@ -40,6 +40,12 @@ export class RankService {
     audit(this.store, { tenant_id: tenantId, actor, action: 'RANK_UPDATE', detail: { enabled: config.enabled, count: ranks.length } });
     return this.get(actor, tenantId);
   }
+  // 絞り込みの選択肢用: 有効なときのランクの称号 (低い順)
+  titles(actor, tenantId) {
+    require_(actor, 'MEMBER_VIEW', tenantId);
+    const c = this.#row(tenantId)?.config;
+    return c?.enabled ? c.ranks.map((r) => r.title) : [];
+  }
   // 会員のランク (無効なら null)。stars は 1 から。next は次のランクまでの残り回数
   forVisits(tenantId, visits) {
     const c = this.#row(tenantId)?.config;

@@ -424,21 +424,24 @@ async function cardView() {
 }
 
 // ---------- 会員 ----------
-const BUILTIN = [['days_since_last_visit', '最終来店からの日数', 'num'], ['visit_count', '来店回数', 'num'], ['days_until_birthday', '誕生日までの日数', 'num'], ['registered_at', '登録日', 'date']];
+const loadRankTitles = async () => { try { ST.rankTitles = featOn('rank') ? (await api('/ranks/titles')).titles : []; } catch { ST.rankTitles = []; } };
+const BUILTIN_BASE = [['days_since_last_visit', '最終来店からの日数', 'num'], ['visit_count', '来店回数', 'num'], ['days_until_birthday', '誕生日までの日数', 'num'], ['registered_at', '登録日', 'date']];
 const OPS = [['eq', '＝'], ['ne', '≠'], ['contains', '含む'], ['gte', '以上'], ['lte', '以下'], ['empty', '未登録'], ['notEmpty', '登録あり']];
+const builtin = () => [...BUILTIN_BASE, ...(ST.rankTitles?.length ? [['rank', '会員ランク', 'text']] : [])]; // ランクが有効なときだけ「会員ランク」で絞り込める
 let sortSel = { field: 'registered_at', dir: 'desc' };
 const memberState = { conds: [], logic: 'AND', status: 'ACTIVE' };
 const msgState = { conds: [], logic: 'AND' };
 
 // 絞り込み条件エディタ (会員検索とメッセージ配信のセグメントで共用)。AND/OR を切り替えられる。
 function condBuilder(state) {
-  const fieldOpts = [...BUILTIN.map(([k, t]) => [k, t]), ...ST.fields.map((f) => [f.field_id, f.field_name])];
-  const numeric = (k) => BUILTIN.find((b) => b[0] === k)?.[2] === 'num' || ST.fields.find((f) => f.field_id === k)?.field_type === 'NUMBER';
+  const fieldOpts = [...builtin().map(([k, t]) => [k, t]), ...ST.fields.map((f) => [f.field_id, f.field_name])];
+  const numeric = (k) => builtin().find((b) => b[0] === k)?.[2] === 'num' || ST.fields.find((f) => f.field_id === k)?.field_type === 'NUMBER';
   const list = el('div');
   const draw = () => list.replaceChildren(...state.conds.map((c, i) => {
-    const fs = el('select', { onchange: () => { c.field = fs.value; } }, fieldOpts.map(([k, t]) => el('option', { value: k, selected: k === c.field }, t)));
+    const fs = el('select', { onchange: () => { c.field = fs.value; c.value = ''; draw(); } }, fieldOpts.map(([k, t]) => el('option', { value: k, selected: k === c.field }, t)));
     const os = el('select', { onchange: () => { c.op = os.value; } }, OPS.map(([k, t]) => el('option', { value: k, selected: k === c.op }, t)));
-    const v = el('input', { type: 'text', value: c.value ?? '', placeholder: '値', oninput: () => { c.value = v.value; } });
+    const v = c.field === 'rank' ? el('select', { onchange: () => { c.value = v.value; } }, (ST.rankTitles ?? []).map((t) => el('option', { value: t, selected: t === c.value }, t))) : el('input', { type: 'text', value: c.value ?? '', placeholder: '値', oninput: () => { c.value = v.value; } });
+    if (c.field === 'rank' && !c.value) c.value = ST.rankTitles?.[0] ?? '';
     return el('div', { className: 'cond' }, fs, os, v, btn('×', () => { state.conds.splice(i, 1); draw(); }, 'sm'));
   }));
   const logic = el('select', { style: 'width:auto;flex:0 0 auto', onchange: () => { state.logic = logic.value; } },
@@ -465,7 +468,7 @@ const listState = { page: 0, size: 20, cols: null };
 
 async function membersView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
-  ST.fields = (await api('/form')).fields;
+  ST.fields = (await api('/form')).fields; await loadRankTitles();
   const fieldCols = ST.fields.map((f) => [f.field_id, f.field_name + (f.enabled ? '' : '(非表示中)')]);
   const allCols = [...BUILTIN_COLS, ...fieldCols], label = (id) => allCols.find(([k]) => k === id)?.[1] ?? id;
   const isField = (id) => ST.fields.some((f) => f.field_id === id);
@@ -752,7 +755,7 @@ function scheduleDialog(s, offerable, done) {
 }
 async function scheduleView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
-  ST.fields = (await api('/form')).fields;
+  ST.fields = (await api('/form')).fields; await loadRankTitles();
   const { schedules } = await api('/schedules'), err = el('div', { className: 'err' });
   const { coupons: offerable } = (can('COUPON_MANAGE') && featOn('coupons')) ? await api('/coupons/active') : { coupons: [] };
   const result = (s) => { const r = s.last_result; return !r ? '-' : r.error ? `エラー: ${r.error}` : `${(r.at || '').replace('T', ' ').slice(0, 16)} 送信${r.sent}人${r.failed ? `(失敗${r.failed})` : ''}`; };
@@ -887,7 +890,7 @@ async function birthdayView() {
 // ---------- メッセージ配信 ----------
 async function messagesView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
-  ST.fields = (await api('/form')).fields;
+  ST.fields = (await api('/form')).fields; await loadRankTitles();
   const { messages } = await api('/messages');
   const { coupons: offerable } = (can('COUPON_MANAGE') && featOn('coupons')) ? await api('/coupons/active') : { coupons: [] };
   const cb = condBuilder(msgState);

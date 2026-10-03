@@ -24,6 +24,7 @@ export function createApp(fileOrStore = null, { secret = randomBytes(32).toStrin
   messaging.coupons = coupons; // クーポンの添付・付与
   const birthday = new BirthdayService(store, vault, members, coupons, fetchImpl);
   const visitRules = new VisitRuleService(store, vault, members, coupons, fetchImpl);
-  const ranks = new RankService(store), schedules = new ScheduleService(store, members, messaging);
+  const ranks = new RankService(store); members.ranks = ranks; // 会員の絞り込み条件「会員ランク」で使う
+  const schedules = new ScheduleService(store, members, messaging);
   return { store, vault, forms, members, card: new CardService(store), coupons, messaging, birthday, visitRules, ranks, schedules, fetchImpl };
 }

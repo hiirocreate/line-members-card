@@ -24,7 +24,7 @@ export const SHEETS = {
   coupons: ['coupon_id', 'tenant_id', 'title', 'benefit', 'description', 'valid_from', 'valid_until', 'status', 'created_by', 'created_at', 'updated_at', 'valid_days'],
   coupon_grants: ['coupon_id', 'tenant_id', 'member_id', 'message_id', 'granted_at', 'grant_id', 'expires_at'],
   coupon_redemptions: ['redemption_id', 'coupon_id', 'tenant_id', 'member_id', 'redeemed_at', 'recorded_by', 'method', 'grant_id'],
-  birthday_campaigns: ['tenant_id', 'enabled', 'days_before', 'message_text', 'coupon_id', 'updated_at', 'updated_by', 'last_run_at', 'last_result'],
+  birthday_campaigns: ['tenant_id', 'enabled', 'days_before', 'message_text', 'coupon_id', 'updated_at', 'updated_by', 'last_run_at', 'last_result', 'coupon_days'],
   birthday_sends: ['tenant_id', 'member_id', 'year', 'sent_at', 'coupon_granted'],
   card_designs: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
   card_assets: ['asset_id', 'tenant_id', 'kind', 'mime', 'chunk', 'total', 'size', 'data', 'created_at'],

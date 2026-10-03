@@ -6,6 +6,7 @@ import { require_ } from './permissions.js';
 import { audit } from './audit.js';
 import { resolveLine } from './settings.js';
 import { push, couponFlex } from './line.js';
+import { parseDays } from './coupons.js';
 
 const CAP = 200; // 1回の実行で送る最大人数 (超えた分は翌日に回る)
 export const DEFAULT_TEXT = '{名前}さん、お誕生日おめでとうございます🎂\nいつもご利用ありがとうございます。ささやかですが、お祝いの気持ちをお届けします。';
@@ -18,20 +19,22 @@ export class BirthdayService {
   get(actor, tenantId) {
     require_(actor, 'MESSAGE_SEND', tenantId);
     const r = this.#row(tenantId);
-    return { enabled: r?.enabled === true || r?.enabled === 'TRUE', days_before: Number(r?.days_before ?? 7), message_text: r?.message_text ?? DEFAULT_TEXT, coupon_id: r?.coupon_id ?? '',
+    return { enabled: r?.enabled === true || r?.enabled === 'TRUE', days_before: Number(r?.days_before ?? 7), message_text: r?.message_text ?? DEFAULT_TEXT, coupon_id: r?.coupon_id ?? '', coupon_days: r?.coupon_days || '',
       last_run_at: r?.last_run_at ?? '', last_result: r?.last_result || null, hasBirthdayField: !!this.members.forms.fields(tenantId).find((f) => f.master_key === 'birthday') };
   }
   save(actor, tenantId, input) {
     require_(actor, 'MESSAGE_SEND', tenantId);
     const days = Number(input.days_before), text = typeof input.message_text === 'string' ? input.message_text.trim() : '', coupon_id = input.coupon_id || '';
     const errors = [];
+    let coupon_days = null;
+    try { coupon_days = parseDays(input.coupon_days); } catch (e) { errors.push(e.message); }
     if (!Number.isInteger(days) || days < 0 || days > 60) errors.push('「何日前から送るか」は0〜60の整数で指定してください');
     if (text.length > 1000) errors.push('メッセージは1000文字以内です');
     try { assertSafeText(text, 'メッセージ'); } catch (e) { errors.push(e.message); }
     if (coupon_id && !this.store.find('coupons', (c) => c.tenant_id === tenantId && c.coupon_id === coupon_id)) errors.push('クーポンが存在しません');
     if (input.enabled && !text && !coupon_id) errors.push('メッセージかクーポンのどちらかを設定してください');
     if (errors.length) throw new ValidationError('誕生日配信の入力内容に誤りがあります', errors);
-    const patch = { enabled: !!input.enabled, days_before: days, message_text: text, coupon_id, updated_at: new Date().toISOString(), updated_by: actor.id };
+    const patch = { enabled: !!input.enabled, days_before: days, message_text: text, coupon_id, coupon_days: coupon_days ?? '', updated_at: new Date().toISOString(), updated_by: actor.id };
     if (this.#row(tenantId)) this.store.update('birthday_campaigns', (r) => r.tenant_id === tenantId, patch);
     else this.store.insert('birthday_campaigns', { tenant_id: tenantId, last_run_at: '', last_result: '', ...patch });
     audit(this.store, { tenant_id: tenantId, actor, action: 'BIRTHDAY_SETTINGS', detail: { enabled: patch.enabled, days_before: days, coupon: coupon_id || null } });
@@ -94,11 +97,11 @@ export class BirthdayService {
         const messages = [];
         const text = cfg.message_text.replaceAll('{名前}', m.name || 'お客');
         if (text) messages.push({ type: 'text', text });
-        if (coupon) messages.push(couponFlex({ shop, coupon, url, untilText: this.coupons.untilText(coupon, nowMs) }));
+        if (coupon) messages.push(couponFlex({ shop, coupon, url, untilText: this.coupons.untilText(coupon, nowMs, cfg.coupon_days || null) }));
         try { await push(messagingToken, m.user_id, messages, this.fetchImpl); }
         catch (e) { r.failed++; if (r.errors.length < 3) r.errors.push(String(e.message).slice(0, 200)); continue; }
         r.sent++;
-        const g = coupon ? this.coupons.grant(tenantId, coupon.coupon_id, [m.member_id], `birthday:${year}`) : 0;
+        const g = coupon ? this.coupons.grant(tenantId, coupon.coupon_id, [m.member_id], `birthday:${year}`, cfg.coupon_days || null) : 0;
         r.granted += g;
         this.store.insert('birthday_sends', { tenant_id: tenantId, member_id: m.member_id, year, sent_at: new Date(nowMs).toISOString(), coupon_granted: g > 0 });
       }

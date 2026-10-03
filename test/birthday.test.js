@@ -115,3 +115,19 @@ test('cron エンドポイント: CRON_SECRET が必要', async () => {
   const none = createServer(app, { cronSecret: '', sessionSecret: SECRET }).listen(0);
   assert.equal((await fetch(`http://127.0.0.1:${none.address().port}/api/cron/birthday`, { method: 'POST', headers: { authorization: 'Bearer ' } })).status, 401); none.close();
 });
+
+test('配信ごとのクーポン有効日数: 誕生日配信・通常配信で上書きできる', async () => {
+  const { app, reg, calls } = env();
+  const m = reg('U1', bornIn(2));
+  const cp = app.coupons.create(ADMIN_A, T, { title: 'c', valid_days: 90 });
+  assert.throws(() => app.birthday.save(ADMIN_A, T, { enabled: false, days_before: 7, message_text: 'x', coupon_id: cp.coupon_id, coupon_days: 999 }), (e) => e.details.some((x) => /1〜365/.test(x)));
+  app.birthday.save(ADMIN_A, T, { enabled: true, days_before: 7, message_text: 'x', coupon_id: cp.coupon_id, coupon_days: 14 });
+  assert.equal(app.birthday.get(ADMIN_A, T).coupon_days, 14);
+  await app.birthday.run(ADMIN_A, T);
+  assert.equal(app.store.select('coupon_grants')[0].expires_at, addDaysJst(Date.now(), 14)); assert.ok(JSON.stringify(calls[0].body).includes('14日間'));
+  const cp2 = app.coupons.create(ADMIN_A, T, { title: 'd' });
+  await app.messaging.send(ADMIN_A, T, { text: 'hi', expectedCount: 1, couponId: cp2.coupon_id, couponDays: 7 });
+  assert.equal(app.store.select('coupon_grants').find((g) => g.coupon_id === cp2.coupon_id).expires_at, addDaysJst(Date.now(), 7));
+  app.birthday.save(ADMIN_A, T, { enabled: true, days_before: 7, message_text: 'x', coupon_id: cp.coupon_id, coupon_days: '' });
+  assert.equal(app.birthday.get(ADMIN_A, T).coupon_days, '');
+});

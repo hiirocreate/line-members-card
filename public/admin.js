@@ -728,13 +728,14 @@ async function birthdayView() {
   const cfg = await api('/birthday');
   const { coupons: offerable } = can('COUPON_MANAGE') ? await api('/coupons/active') : { coupons: [] };
   const err = el('div', { className: 'err' }), info = el('div', { className: 'hint', style: 'font-size:14px;margin:8px 0' });
-  const enabled = el('input', { type: 'checkbox', checked: cfg.enabled }), days = el('input', { type: 'number', min: 0, max: 60, value: cfg.days_before });
+  const enabled = el('input', { type: 'checkbox', checked: cfg.enabled, style: 'width:auto;margin:0' }), days = el('input', { type: 'number', min: 0, max: 60, value: cfg.days_before });
   const text = el('textarea', { maxLength: 1000, style: 'min-height:120px', value: cfg.message_text });
+  const cdays = el('input', { type: 'number', min: 1, max: 365, value: cfg.coupon_days ?? '', placeholder: '例: 30', style: 'max-width:140px' });
   const sel = el('select', {}, el('option', { value: '' }, '添付しない'), offerable.map((c) => el('option', { value: c.coupon_id, selected: c.coupon_id === cfg.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`)));
   if (cfg.coupon_id && !offerable.some((c) => c.coupon_id === cfg.coupon_id)) sel.append(el('option', { value: cfg.coupon_id, selected: true }, '(設定済みのクーポン: 現在は無効または期限切れ)'));
   const show = (p) => { info.textContent = `現在の対象: 誕生日が${days.value}日以内の会員 ${p.matched}人 → 送信予定 ${p.willSend}人(LINE配信に未同意 ${p.skipped.notConsented}人 / 今年送信済み ${p.skipped.alreadySent}人)`; };
   show(cfg.preview);
-  const body = () => ({ enabled: enabled.checked, days_before: Number(days.value), message_text: text.value, coupon_id: sel.value });
+  const body = () => ({ enabled: enabled.checked, days_before: Number(days.value), message_text: text.value, coupon_id: sel.value, coupon_days: cdays.value });
   const save = run(err, async () => { const r = await api('/birthday', { method: 'PUT', body: body() }); show(r.preview); alert('保存しました'); });
   const runNow = run(err, async () => {
     if (!confirm(`保存済みの設定で、対象の会員(送信予定の人数)へ今すぐ送信します。取り消しはできません。よろしいですか？\n※先に「保存」を押していない変更は反映されません。`)) return;
@@ -745,10 +746,11 @@ async function birthdayView() {
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '誕生日メッセージ・クーポン'),
     el('div', { className: 'hint', style: 'margin-bottom:10px' }, '誕生日が近づいた会員に、メッセージ(とクーポン)を自動で送ります。同じ会員には1年に1回だけ送ります。対象は、有効な会員でLINE配信に同意した会員だけです。会員登録フォームに「生年月日」項目が必要です。'),
     cfg.hasBirthdayField ? null : el('div', { className: 'err' }, '会員登録フォームに「生年月日」の項目がありません。「会員登録フォーム」タブで追加してください。'),
-    el('label', { className: 'row', style: 'gap:8px;margin:8px 0' }, enabled, el('b', {}, '誕生日配信を有効にする(毎日自動で実行)')),
+    el('label', { style: 'display:inline-flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer' }, el('span', { style: 'display:inline-flex' }, enabled), el('b', {}, '誕生日配信を有効にする(毎日自動で実行)')),
     lab('誕生日の何日前から送るか', days, '0=誕生日当日。例: 7 → 誕生日の7日前〜当日に入った会員へ、その日のうちに送ります。'),
     lab('メッセージ', text, '{名前} は会員の名前に置き換わります。空欄にするとクーポンだけを送ります。'),
-    can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', sel, '「クーポン」タブで「付与からの有効日数」(例: 30)を設定すると、誕生日クーポンの使える期間を限定できます。') : null,
+    can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', sel) : null,
+    can('COUPON_MANAGE') ? lab('クーポンの有効日数(配信から何日間)', cdays, '例: 30 → 受け取ってから30日間使えます。空欄のときは、クーポン自体の設定(有効期限など)に従います。クーポンに有効期限がある場合は、早い方が優先されます。') : null,
     info, err, el('div', { className: 'row' }, btn('保存', save, 'pri'), btn('今すぐ実行', runNow))),
     el('div', { className: 'card' }, el('h2', {}, '前回の実行'), lr ? el('div', {}, `${(cfg.last_run_at || '').replace('T', ' ').slice(0, 16)} UTC — ${lr.error ? `エラー: ${lr.error}` : `送信 ${lr.sent}人 / 失敗 ${lr.failed}人 / クーポン配布 ${lr.granted}人${lr.deferred ? ` / 持ち越し ${lr.deferred}人` : ''}`}`) : el('div', { className: 'hint' }, 'まだ実行されていません。'))));
 }
@@ -762,13 +764,14 @@ async function messagesView() {
   const cb = condBuilder(msgState);
   const couponSel = el('select', {}, el('option', { value: '' }, '添付しない'), offerable.map((c) => el('option', { value: c.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`)));
   const text = el('textarea', { maxLength: 5000, style: 'min-height:140px', placeholder: '配信するメッセージ(テキスト)' });
+  const mdays = el('input', { type: 'number', min: 1, max: 365, placeholder: '例: 30', style: 'max-width:140px' });
   const count = el('div', { style: 'font-size:16px;margin:8px 0' }), err = el('div', { className: 'err' });
   let expected = null;
   const sendBtn = btn('送信', run(err, async () => {
     if (expected === null) throw new Error('先に「対象人数を確認」を押してください');
     if (!text.value.trim() && !couponSel.value) throw new Error('メッセージを入力するか、クーポンを添付してください');
     if (!confirm(`${expected}人にメッセージ${couponSel.value ? '(クーポン付き)' : ''}を送信します。取り消しはできません。よろしいですか？`)) return;
-    const r = await api('/messages/send', { method: 'POST', body: { text: text.value, where: cb.where(), expectedCount: expected, couponId: couponSel.value || undefined } });
+    const r = await api('/messages/send', { method: 'POST', body: { text: text.value, where: cb.where(), expectedCount: expected, couponId: couponSel.value || undefined, couponDays: mdays.value } });
     alert(`送信結果: ${r.status}(成功 ${r.sent}人 / 失敗 ${r.failed}人${couponSel.value ? ` / クーポン配布 ${r.granted}人` : ''})${r.errors.length ? '\n' + r.errors.join('\n') : ''}`); render();
   }), 'pri');
   const preview = btn('対象人数を確認', run(err, async () => {
@@ -777,7 +780,8 @@ async function messagesView() {
   }));
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, 'LINEメッセージ配信'),
     el('div', { className: 'hint' }, '配信できるのは、有効な会員のうちLINE配信に同意した会員だけです(退会済み・未同意の会員には送られません)。送信にはLINE連携タブでチャネルアクセストークンの登録が必要です。'),
-    lab('メッセージ', text), can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', couponSel, offerable.length ? 'メッセージの下に、クーポンのカード(「クーポンを使う」ボタン付き)が付きます。届いた会員にだけ配布されます。' : '有効なクーポンがありません。「クーポン」タブで作成してください。') : null, el('h2', { style: 'margin-top:16px' }, '配信先の絞り込み(任意)'), cb.node, count, err, el('div', { className: 'row' }, preview, sendBtn)),
+    lab('メッセージ', text), can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', couponSel, offerable.length ? 'メッセージの下に、クーポンのカード(「クーポンを使う」ボタン付き)が付きます。届いた会員にだけ配布されます。' : '有効なクーポンがありません。「クーポン」タブで作成してください。') : null,
+    can('COUPON_MANAGE') ? lab('クーポンの有効日数(配信から何日間・任意)', mdays, '例: 30 → 届いてから30日間使えます。空欄のときは、クーポン自体の設定に従います。') : null, el('h2', { style: 'margin-top:16px' }, '配信先の絞り込み(任意)'), cb.node, count, err, el('div', { className: 'row' }, preview, sendBtn)),
     el('div', { className: 'card' }, el('h2', {}, '配信履歴'), el('table', {}, el('tr', {}, ['日時', '内容', '対象', '成功', '失敗', '状態'].map((h) => el('th', {}, h))),
       messages.map((m) => el('tr', {}, [m.created_at.replace('T', ' ').slice(0, 16), m.text.slice(0, 40), m.audience, m.sent, m.failed, m.status].map((x) => el('td', {}, String(x)))))))));
 }

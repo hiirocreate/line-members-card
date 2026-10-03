@@ -9,6 +9,7 @@ import { addDaysJst } from './dates.js';
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const startOf = (d) => Date.parse(`${d}T00:00:00+09:00`), endOf = (d) => Date.parse(`${d}T23:59:59.999+09:00`); // 日付は日本時間で扱う
 const validDay = (d) => DAY.test(d) && !Number.isNaN(startOf(d)) && new Date(startOf(d) + 9 * 3600_000).toISOString().slice(0, 10) === d;
+export const parseDays = (v) => { if (v === undefined || v === null || v === '' || v === 0) return null; const n = Number(v); if (!Number.isInteger(n) || n < 1 || n > 365) throw new ValidationError('付与からの有効日数は1〜365の整数で指定してください'); return n; };
 export const fmtDay = (d) => (d ? d.replaceAll('-', '/') : null);
 const CODE_TTL = 5 * 60_000;
 
@@ -119,9 +120,9 @@ export class CouponService {
     return c;
   }
   // 配信が届いた会員にだけ付与。期限なし/固定期限のクーポンは1人1回。「付与からN日」のクーポンは、前回分が使用済みか期限切れなら再付与できる
-  grant(tenantId, couponId, memberIds, messageId = '') {
+  grant(tenantId, couponId, memberIds, messageId = '', daysOverride = null) {
     const c = this.#row(tenantId, couponId);
-    const now = new Date(), days = Number(c.valid_days) || 0;
+    const now = new Date(), days = Number(daysOverride ?? c.valid_days) || 0;
     let n = 0;
     for (const m of memberIds) {
       const last = this.#latest(tenantId, couponId, m);
@@ -132,8 +133,8 @@ export class CouponService {
     return n;
   }
   // 付与から N 日 のクーポンの、配信文に載せる有効期限の文言
-  untilText(c, now = Date.now()) {
-    const days = Number(c.valid_days) || 0;
+  untilText(c, now = Date.now(), daysOverride = null) {
+    const days = Number(daysOverride ?? c.valid_days) || 0;
     const until = days ? [c.valid_until, addDaysJst(now, days)].filter(Boolean).sort()[0] : c.valid_until;
     return until ? `${fmtDay(until)}まで${days ? `(受け取りから${days}日間)` : ''}` : 'なし';
   }

@@ -5,7 +5,6 @@ import { require_ } from './permissions.js';
 import { audit } from './audit.js';
 import { resolveLine } from './settings.js';
 import { multicast, couponFlex } from './line.js';
-import { fmtDay } from './coupons.js';
 
 export class MessagingService {
   constructor(store, vault, members, fetchImpl = fetch) { Object.assign(this, { store, vault, members, fetchImpl }); }
@@ -37,7 +36,7 @@ export class MessagingService {
     if (coupon) {
       const url = this.couponUrl?.(actor, tenantId, coupon.coupon_id);
       if (!url) throw new ValidationError('クーポンのURLを作れません。「LINE連携」でLIFF IDを設定してください');
-      messages.push(couponFlex({ shop: this.store.find('tenants', (t) => t.tenant_id === tenantId)?.name ?? '', coupon, url, until: fmtDay(coupon.valid_until) }));
+      messages.push(couponFlex({ shop: this.store.find('tenants', (t) => t.tenant_id === tenantId)?.name ?? '', coupon, url, untilText: this.coupons.untilText(coupon) }));
     }
     const { userIds, memberByUser } = this.audience(actor, tenantId, where);
     if (!userIds.length) throw new ValidationError('配信対象の会員がいません');

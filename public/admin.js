@@ -96,9 +96,9 @@ function resetView(token) {
 }
 
 // ---------- 共通レイアウト ----------
-const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
+const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['birthday', '誕生日配信'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
-  const tabs = [...TABS.filter(([k]) => (k === 'messages' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
+  const tabs = [...TABS.filter(([k]) => (k === 'messages' || k === 'birthday' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));
   if (ST.me.role === 'OPERATOR') {
     const sel = el('select', { style: 'width:auto', onchange: () => { if (formDirty() && !confirm('保存していない変更があります。破棄して店舗を切り替えますか?')) { sel.value = ST.tenant ?? ''; return; } discardFormDraft(); ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
@@ -289,7 +289,7 @@ function fieldDialog(f, d, redraw) {
   const dlg = el('dialog', {}, el('h2', {}, isNew ? 'カスタム項目を追加' : `項目を編集: ${f.field_name}`),
     lab('表示名', name, f && f.master_key ? '内部ID(field_id)は変わりません。表示名のみ変更されます。' : null), lab('入力形式', type), choiceBox, consentBox,
     lab('プレースホルダー', ph), lab('利用目的(会員に表示)', purpose), lab('表示範囲', vis),
-    el('label', { className: 'lb' }, required, ' 必須'), el('label', { className: 'lb' }, editable, ' ユーザー自身が変更できる'), err,
+    el('label', { className: 'lb' }, required, ' 必須'), el('label', { className: 'lb' }, editable, ' ユーザー自身が変更できる'), lab('付与からの有効日数(任意)', days, '会員に届いてからの日数です(例: 誕生日クーポンで30)。有効期限と両方ある場合は早い方が優先。空欄なら制限なし。'), err,
     el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => dlg.close()), btn(isNew ? '下書きに追加' : '下書きに反映', run(err, async () => apply()), 'pri'),
     ), el('div', { className: 'hint', style: 'text-align:right' }, '「保存」ボタンを押すまで、会員には反映されません。'));
   document.body.append(dlg); dlg.addEventListener('close', () => dlg.remove()); dlg.showModal();
@@ -428,7 +428,7 @@ async function cardView() {
 }
 
 // ---------- 会員 ----------
-const BUILTIN = [['days_since_last_visit', '最終来店からの日数', 'num'], ['visit_count', '来店回数', 'num'], ['registered_at', '登録日', 'date']];
+const BUILTIN = [['days_since_last_visit', '最終来店からの日数', 'num'], ['visit_count', '来店回数', 'num'], ['days_until_birthday', '誕生日までの日数', 'num'], ['registered_at', '登録日', 'date']];
 const OPS = [['eq', '＝'], ['ne', '≠'], ['contains', '含む'], ['gte', '以上'], ['lte', '以下'], ['empty', '未登録'], ['notEmpty', '登録あり']];
 let sortSel = { field: 'registered_at', dir: 'desc' };
 const memberState = { conds: [], logic: 'AND', status: 'ACTIVE' };
@@ -697,8 +697,9 @@ function couponDialog(c, done) {
   const title = el('input', { type: 'text', value: c?.title ?? '', maxLength: 40, placeholder: '例: 来店感謝クーポン' }), benefit = el('input', { type: 'text', value: c?.benefit ?? '', maxLength: 60, placeholder: '例: ドリンク1杯無料 / 全品10%OFF' });
   const desc = el('textarea', { value: c?.description ?? '', maxLength: 300, placeholder: '例: 他の割引との併用はできません。お会計時にスタッフへご提示ください。' });
   const from = el('input', { type: 'date', value: c?.valid_from ?? '' }), until = el('input', { type: 'date', value: c?.valid_until ?? '' });
+  const days = el('input', { type: 'number', min: 1, max: 365, value: c?.valid_days ?? '', placeholder: '例: 30' });
   const save = run(err, async () => {
-    const body = { title: title.value, benefit: benefit.value, description: desc.value, valid_from: from.value, valid_until: until.value };
+    const body = { title: title.value, benefit: benefit.value, description: desc.value, valid_from: from.value, valid_until: until.value, valid_days: days.value };
     if (c) await api(`/coupons/${c.coupon_id}`, { method: 'PUT', body }); else await api('/coupons', { method: 'POST', body });
     d.close(); done();
   });
@@ -714,10 +715,41 @@ async function couponsView() {
     el('div', { className: 'hint', style: 'margin-bottom:10px' }, 'クーポンを作り、「メッセージ配信」で添付して送ります。メッセージが届いた会員にだけ配布され、1人1回使えます。会員が「クーポンを使う」で出したQRを、「来店スキャン」で読み取ると、使用済みになります。'),
     el('div', { className: 'row', style: 'margin-bottom:10px' }, btn('＋ クーポンを作成', () => couponDialog(null, render), 'pri')),
     coupons.length ? el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, ['クーポン名', '特典', '期間', '配布', '使用', '状態', ''].map((h) => el('th', {}, h))),
-      coupons.map((c) => el('tr', {}, el('td', {}, c.title), el('td', {}, c.benefit || '-'), el('td', {}, c.valid_from || c.valid_until ? `${dayText(c.valid_from)}〜${dayText(c.valid_until)}` : '期限なし'), el('td', {}, String(c.granted)), el('td', {}, String(c.redeemed)),
+      coupons.map((c) => el('tr', {}, el('td', {}, c.title), el('td', {}, c.benefit || '-'), el('td', {}, (c.valid_from || c.valid_until ? `${dayText(c.valid_from)}〜${dayText(c.valid_until)}` : '期限なし') + (c.valid_days ? ` / 付与から${c.valid_days}日` : '')), el('td', {}, String(c.granted)), el('td', {}, String(c.redeemed)),
         el('td', {}, el('span', { className: `badge ${c.window === 'active' ? 'int' : ''}` }, WINDOW_LABEL[c.window])),
         el('td', {}, el('div', { className: 'row' }, btn('編集', () => couponDialog(c, render), 'sm'),
           btn(c.status === 'ARCHIVED' ? '再開' : '終了', run(err, async () => { await api(`/coupons/${c.coupon_id}/${c.status === 'ARCHIVED' ? 'restore' : 'archive'}`, { method: 'POST' }); render(); }), 'sm'))))))) : el('div', { className: 'hint' }, 'クーポンはまだありません。'), err));
+}
+
+// ---------- 誕生日配信 ----------
+async function birthdayView() {
+  if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
+  const cfg = await api('/birthday');
+  const { coupons: offerable } = can('COUPON_MANAGE') ? await api('/coupons/active') : { coupons: [] };
+  const err = el('div', { className: 'err' }), info = el('div', { className: 'hint', style: 'font-size:14px;margin:8px 0' });
+  const enabled = el('input', { type: 'checkbox', checked: cfg.enabled }), days = el('input', { type: 'number', min: 0, max: 60, value: cfg.days_before });
+  const text = el('textarea', { maxLength: 1000, style: 'min-height:120px', value: cfg.message_text });
+  const sel = el('select', {}, el('option', { value: '' }, '添付しない'), offerable.map((c) => el('option', { value: c.coupon_id, selected: c.coupon_id === cfg.coupon_id }, `${c.title}${c.benefit ? ` (${c.benefit})` : ''}`)));
+  if (cfg.coupon_id && !offerable.some((c) => c.coupon_id === cfg.coupon_id)) sel.append(el('option', { value: cfg.coupon_id, selected: true }, '(設定済みのクーポン: 現在は無効または期限切れ)'));
+  const show = (p) => { info.textContent = `現在の対象: 誕生日が${days.value}日以内の会員 ${p.matched}人 → 送信予定 ${p.willSend}人(LINE配信に未同意 ${p.skipped.notConsented}人 / 今年送信済み ${p.skipped.alreadySent}人)`; };
+  show(cfg.preview);
+  const body = () => ({ enabled: enabled.checked, days_before: Number(days.value), message_text: text.value, coupon_id: sel.value });
+  const save = run(err, async () => { const r = await api('/birthday', { method: 'PUT', body: body() }); show(r.preview); alert('保存しました'); });
+  const runNow = run(err, async () => {
+    if (!confirm(`保存済みの設定で、対象の会員(送信予定の人数)へ今すぐ送信します。取り消しはできません。よろしいですか？\n※先に「保存」を押していない変更は反映されません。`)) return;
+    const r = await api('/birthday/run', { method: 'POST' });
+    alert(`送信 ${r.sent}人 / 失敗 ${r.failed}人${r.granted ? ` / クーポン配布 ${r.granted}人` : ''}${r.deferred ? `\n(上限のため ${r.deferred}人は次回に送ります)` : ''}${r.errors.length ? '\n' + r.errors.join('\n') : ''}`); render();
+  });
+  const lr = cfg.last_result;
+  layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '誕生日メッセージ・クーポン'),
+    el('div', { className: 'hint', style: 'margin-bottom:10px' }, '誕生日が近づいた会員に、メッセージ(とクーポン)を自動で送ります。同じ会員には1年に1回だけ送ります。対象は、有効な会員でLINE配信に同意した会員だけです。会員登録フォームに「生年月日」項目が必要です。'),
+    cfg.hasBirthdayField ? null : el('div', { className: 'err' }, '会員登録フォームに「生年月日」の項目がありません。「会員登録フォーム」タブで追加してください。'),
+    el('label', { className: 'row', style: 'gap:8px;margin:8px 0' }, enabled, el('b', {}, '誕生日配信を有効にする(毎日自動で実行)')),
+    lab('誕生日の何日前から送るか', days, '0=誕生日当日。例: 7 → 誕生日の7日前〜当日に入った会員へ、その日のうちに送ります。'),
+    lab('メッセージ', text, '{名前} は会員の名前に置き換わります。空欄にするとクーポンだけを送ります。'),
+    can('COUPON_MANAGE') ? lab('クーポンを添付(任意)', sel, '「クーポン」タブで「付与からの有効日数」(例: 30)を設定すると、誕生日クーポンの使える期間を限定できます。') : null,
+    info, err, el('div', { className: 'row' }, btn('保存', save, 'pri'), btn('今すぐ実行', runNow))),
+    el('div', { className: 'card' }, el('h2', {}, '前回の実行'), lr ? el('div', {}, `${(cfg.last_run_at || '').replace('T', ' ').slice(0, 16)} UTC — ${lr.error ? `エラー: ${lr.error}` : `送信 ${lr.sent}人 / 失敗 ${lr.failed}人 / クーポン配布 ${lr.granted}人${lr.deferred ? ` / 持ち越し ${lr.deferred}人` : ''}`}`) : el('div', { className: 'hint' }, 'まだ実行されていません。'))));
 }
 
 // ---------- メッセージ配信 ----------
@@ -879,7 +911,7 @@ async function opsView() {
 }
 
 // ---------- ルーティング ----------
-const VIEWS = { form: formView, card: cardView, coupons: couponsView, members: membersView, scan: scanView, messages: messagesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
+const VIEWS = { form: formView, card: cardView, coupons: couponsView, members: membersView, scan: scanView, messages: messagesView, birthday: birthdayView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
 // 描画は1つずつ直列に実行し、実行中に再要求があれば終了後にもう一度だけ描き直す。
 // (画面を素早く切り替えたとき、遅れて終わった前の画面が今の画面を上書きしないようにする)
 let rendering = false, renderAgain = false, pollTimer = null;

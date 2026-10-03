@@ -96,3 +96,29 @@ gcloud run deploy line-members --source . --region asia-northeast1 \
 - 「変更を破棄」で、未保存の変更をすべて捨てられる。未保存のまま、別のタブ・店舗の切り替え・ログアウト・ブラウザを閉じる操作をすると、確認が出る。
 - 他の管理者が先に保存していた場合は、上書きせずに、その旨を表示する(「変更を破棄」で最新を読み込み直す)。
 - 保存の操作は、監査ログに `FORM_BATCH_SAVE` として記録される。
+
+## 13. 誕生日メッセージ・クーポン
+
+管理画面「誕生日配信」タブ。誕生日の N 日前(0=当日)から、有効な会員でLINE配信に同意した会員へ、**1年に1回だけ**メッセージ(とクーポン)を送る。会員登録フォームに「生年月日」項目(マスターから追加)が必要。
+
+- 手動で送りたい場合: 「会員」「メッセージ配信」の絞り込みに「誕生日までの日数」(以下)が使える。
+- クーポンの「付与からの有効日数」(例: 30)で、誕生日クーポンの使える期間を限定できる。前回分が使用済み/期限切れなら、翌年また付与される。
+- 1回の実行で送るのは最大200人(超過分は翌日に持ち越し)。送信に失敗した会員は「送信済み」にならず、翌日再試行される。
+- 自動実行には Cloud Scheduler が必要 (無くても「今すぐ実行」で手動送信はできる)。
+
+### 自動実行の設定 (1回だけ)
+```bash
+# 1) 合言葉を作って Secret Manager に保存
+openssl rand -hex 24 | tr -d '\n' | gcloud secrets create cron-secret --data-file=-
+gcloud secrets add-iam-policy-binding cron-secret \
+  --member="serviceAccount:$(gcloud projects describe $(gcloud config get-value project) --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
+  --role=roles/secretmanager.secretAccessor
+# 2) Cloud Run に渡して再デプロイ (§4 のデプロイコマンドの --set-secrets に ,CRON_SECRET=cron-secret:latest を追加)
+# 3) 毎朝9時(日本時間)に呼び出す
+gcloud services enable cloudscheduler.googleapis.com
+gcloud scheduler jobs create http birthday-daily --location=asia-northeast1 \
+  --schedule="0 9 * * *" --time-zone="Asia/Tokyo" --http-method=POST \
+  --uri="https://<サービスURL>/api/cron/birthday" \
+  --headers="Authorization=Bearer $(gcloud secrets versions access latest --secret=cron-secret)"
+```
+`CRON_SECRET` が未設定のときは、このエンドポイントは常に 401 を返す。

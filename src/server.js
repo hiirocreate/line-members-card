@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 // HTTP サーバ: 会員向け(LIFF/ミニアプリ)API・管理API・静的ファイル。
 // 店舗の特定: 会員側は URL 内 token (サーバ検証)、管理側はログインした管理者の tenant_id (リクエスト値は信用しない)。
 import http from 'node:http';
@@ -26,7 +27,7 @@ const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.
   "connect-src 'self' https://*.line.me https://*.line-apps.com https://*.line-scdn.net; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'none'";
 
 export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANNEL_ID, liffId = process.env.LIFF_ID,
-  sessionSecret = process.env.SESSION_SECRET, publicOrigin = process.env.PUBLIC_ORIGIN, systemMessagingToken = process.env.LINE_SYSTEM_MESSAGING_TOKEN, verifyLine = verifyLineIdToken, fetchImpl = app.fetchImpl ?? fetch } = {}) {
+  sessionSecret = process.env.SESSION_SECRET, publicOrigin = process.env.PUBLIC_ORIGIN, systemMessagingToken = process.env.LINE_SYSTEM_MESSAGING_TOKEN, verifyLine = verifyLineIdToken, cronSecret = process.env.CRON_SECRET, fetchImpl = app.fetchImpl ?? fetch } = {}) {
   const defaults = { liffId, loginChannelId: lineChannelId }; // 店舗が個別設定していない場合の既定値
   if (!sessionSecret || sessionSecret.length < 32) throw new Error('SESSION_SECRET (32文字以上) が必要です');
   const limiter = new LoginLimiter();
@@ -69,6 +70,8 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     const tok = app.store.find('tenant_urls', (u) => u.tenant_id === tenantId && u.enabled)?.token ?? app.forms.issueRegistrationUrl(actor, tenantId);
     return `https://liff.line.me/${l.liffId}?t=${tok}&coupon=${couponId}`;
   };
+
+  app.birthday.couponUrl = app.messaging.couponUrl;
 
   // 応答は即送らず保留し、永続化(flush)が終わってから返す
   const pending = new WeakMap();
@@ -266,6 +269,9 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     // メッセージ配信 (LINE配信に同意した有効会員のみ)
     if (path === '/messages/preview' && req.method === 'POST') return ok(app.messaging.preview(actor, needTenant(), body.where));
     if (path === '/messages/send' && req.method === 'POST') return ok(await app.messaging.send(actor, needTenant(), body), 201);
+    if (path === '/birthday' && req.method === 'GET') return ok({ ...app.birthday.get(actor, needTenant()), preview: app.birthday.preview(actor, needTenant()) });
+    if (path === '/birthday' && req.method === 'PUT') { const t = needTenant(); const saved = app.birthday.save(actor, t, body); return ok({ ...saved, preview: app.birthday.preview(actor, t) }); }
+    if (path === '/birthday/run' && req.method === 'POST') return ok(await app.birthday.run(actor, needTenant(), { force: true }));
     if (path === '/messages' && req.method === 'GET') return ok({ messages: app.messaging.history(actor, needTenant()) });
 
     // 来店 (QRスキャン / 履歴)
@@ -308,6 +314,13 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if (req.method === 'GET' && STATIC[p]) {
       const [file, type] = STATIC[p];
       return send(res, 200, await readFile(PUBLIC_DIR + file), type, { 'content-security-policy': p.startsWith('/admin') ? ADMIN_CSP : APP_CSP });
+    }
+    if (p === '/api/cron/birthday' && req.method === 'POST') { // Cloud Scheduler 用 (毎日1回)。CRON_SECRET を Bearer で渡す
+      const got = Buffer.from(req.headers.authorization ?? ''), want = Buffer.from(`Bearer ${cronSecret ?? ''}`);
+      if (!cronSecret || got.length !== want.length || !timingSafeEqual(got, want)) return send(res, 401, { error: 'unauthorized' });
+      const results = await app.birthday.runAll();
+      await app.store.flush?.();
+      return send(res, 200, { results });
     }
     let m;
     if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+)(?:\/([0-9a-f]{32})(?:\/([a-z]+))?)?)?$/.exec(p))) await publicApi(req, res, url, m[1], m[2], m[3], m[4]);

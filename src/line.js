@@ -58,7 +58,7 @@ export async function isFriend(token, userId, fetchImpl = fetch) {
 export const friendAddUrl = (basicId) => (basicId ? `https://line.me/R/ti/p/${encodeURIComponent(basicId)}` : null);
 
 // クーポンを配信するための Flex メッセージ (カード: タイトル・特典・条件・期限 + 「クーポンを使う」ボタン)
-export function couponFlex({ shop, coupon, url, until }) {
+export function couponFlex({ shop, coupon, url, untilText }) {
   const txt = (text, extra = {}) => ({ type: 'text', text, wrap: true, ...extra });
   return {
     type: 'flex', altText: `【${shop}】クーポン: ${coupon.title}`.slice(0, 400),
@@ -69,7 +69,7 @@ export function couponFlex({ shop, coupon, url, until }) {
         txt(coupon.title, { weight: 'bold', size: 'xl' }),
         ...(coupon.benefit ? [txt(coupon.benefit, { size: 'lg', color: '#d9381e', weight: 'bold' })] : []),
         ...(coupon.description ? [txt(coupon.description, { size: 'sm', color: '#666666' })] : []),
-        txt(until ? `有効期限: ${until}まで` : '有効期限: なし', { size: 'xs', color: '#999999' }),
+        txt(`有効期限: ${untilText || 'なし'}`, { size: 'xs', color: '#999999' }),
       ] },
       footer: { type: 'box', layout: 'vertical', contents: [{ type: 'button', style: 'primary', color: '#06c755', action: { type: 'uri', label: 'クーポンを使う', uri: url } }] },
     },

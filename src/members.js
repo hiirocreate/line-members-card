@@ -4,6 +4,7 @@ import { validateValue, displayValue } from './fieldTypes.js';
 import { require_, canSeeField, can } from './permissions.js';
 import { audit } from './audit.js';
 import { randomUUID, randomBytes } from 'node:crypto';
+import { daysUntilBirthday } from './dates.js';
 import { buildXlsx } from './xlsx.js';
 
 const now = () => new Date().toISOString();
@@ -223,6 +224,20 @@ export class MemberService {
     const members = this.store.select('members', (m) => m.tenant_id === tenantId);
     return { fields, rows: members.map((m) => ({ m, v: vals.get(m.member_id) ?? {} })) };
   }
+  // 誕生日が withinDays 日以内(今日を含む)の有効な会員。権限チェックは呼び出し側で行う(自動配信用)。
+  birthdayCandidates(tenantId, withinDays, nowMs = Date.now()) {
+    const bday = this.forms.fields(tenantId, { includeDisabled: false }).find((f) => f.master_key === 'birthday');
+    if (!bday) return [];
+    const vals = new Map();
+    for (const v of this.store.select('member_custom_values', (r) => r.tenant_id === tenantId && r.field_id === bday.field_id)) vals.set(v.member_id, v.value);
+    const out = [];
+    for (const m of this.store.select('members', (x) => x.tenant_id === tenantId && (x.status || 'ACTIVE') === 'ACTIVE')) {
+      const b = this.#read(m, bday, { [bday.field_id]: vals.get(m.member_id) });
+      const r = typeof b === 'string' ? daysUntilBirthday(b, nowMs) : null;
+      if (r && r.days <= withinDays) out.push({ m, days: r.days, year: r.year });
+    }
+    return out.sort((a, b) => a.days - b.days);
+  }
   // status: 'ACTIVE'(既定) | 'WITHDRAWN' | 'ALL'。退会済みは既定で除外される。
   // columns: 一覧に表示する項目(field_id)。指定すると、各会員に values: { field_id: 表示用の文字列 } が付く (権限のない項目は含まれない)
   search(actor, tenantId, { where, sort, limit = 100, offset = 0, status = 'ACTIVE', columns } = {}) {
@@ -231,7 +246,9 @@ export class MemberService {
     const { fields, rows: all } = this.#rows(actor, tenantId);
     const rows = status === 'ALL' ? all : all.filter((r) => (r.m.status || 'ACTIVE') === status);
     const fieldById = new Map(fields.map((f) => [f.field_id, f]));
+    const bday = fields.find((f) => f.master_key === 'birthday' && f.enabled !== false);
     const get = (row, key) => {
+      if (key === 'days_until_birthday') { const b = bday ? this.#read(row.m, bday, row.v) : null; return typeof b === 'string' ? daysUntilBirthday(b)?.days ?? null : null; }
       if (key === 'days_since_last_visit') return row.m.last_visit_at ? Math.floor((Date.now() - Date.parse(row.m.last_visit_at)) / 864e5) : Infinity;
       if (['visit_count', 'registered_at', 'last_visit_at', 'member_number', 'status'].includes(key)) return row.m[key] === '' ? null : row.m[key];
       const f = fieldById.get(key);
@@ -260,7 +277,7 @@ export class MemberService {
     let res = where ? rows.filter((r) => test(where, r)) : rows;
     if (sort) {
       const dir = sort.dir === 'desc' ? -1 : 1;
-      const num = fieldById.get(sort.field)?.field_type === 'NUMBER' || sort.field === 'visit_count';
+      const num = fieldById.get(sort.field)?.field_type === 'NUMBER' || ['visit_count', 'days_until_birthday'].includes(sort.field);
       res = res.sort((a, b) => {
         const x = get(a, sort.field), y = get(b, sort.field);
         if (x === null || x === undefined) return y === null || y === undefined ? 0 : 1; // 空は常に末尾

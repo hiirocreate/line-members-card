@@ -21,16 +21,18 @@ export const SHEETS = {
   admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at', 'totp_secret', 'totp_pending',
     'totp_enabled', 'recovery_codes', 'token_epoch', 'line_user_id', 'line_linked_at'],
   passkeys: ['credential_id', 'admin_id', 'name', 'public_key', 'alg', 'sign_count', 'transports', 'created_at', 'last_used_at'],
-  coupons: ['coupon_id', 'tenant_id', 'title', 'benefit', 'description', 'valid_from', 'valid_until', 'status', 'created_by', 'created_at', 'updated_at'],
-  coupon_grants: ['coupon_id', 'tenant_id', 'member_id', 'message_id', 'granted_at'],
-  coupon_redemptions: ['redemption_id', 'coupon_id', 'tenant_id', 'member_id', 'redeemed_at', 'recorded_by', 'method'],
+  coupons: ['coupon_id', 'tenant_id', 'title', 'benefit', 'description', 'valid_from', 'valid_until', 'status', 'created_by', 'created_at', 'updated_at', 'valid_days'],
+  coupon_grants: ['coupon_id', 'tenant_id', 'member_id', 'message_id', 'granted_at', 'grant_id', 'expires_at'],
+  coupon_redemptions: ['redemption_id', 'coupon_id', 'tenant_id', 'member_id', 'redeemed_at', 'recorded_by', 'method', 'grant_id'],
+  birthday_campaigns: ['tenant_id', 'enabled', 'days_before', 'message_text', 'coupon_id', 'updated_at', 'updated_by', 'last_run_at', 'last_result'],
+  birthday_sends: ['tenant_id', 'member_id', 'year', 'sent_at', 'coupon_granted'],
   card_designs: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
   card_assets: ['asset_id', 'tenant_id', 'kind', 'mime', 'chunk', 'total', 'size', 'data', 'created_at'],
   password_resets: ['token_hash', 'admin_id', 'expires_at', 'used', 'created_by', 'created_at'],
   visits: ['visit_id', 'tenant_id', 'member_id', 'visited_at', 'method', 'recorded_by'],
   messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at', 'coupon_id'],
 };
-const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config']);
+const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result']);
 
 export class Store {
   constructor(file = null) {

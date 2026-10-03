@@ -224,7 +224,12 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if (path === '/visits' && req.method === 'GET') return ok({ visits: app.members.visits(actor, needTenant()) });
 
     // 会員
-    if (path === '/members/search' && req.method === 'POST') { const r = mm.search(actor, needTenant(), body); return ok({ total: r.total, members: r.members }); }
+    if (path === '/members/search' && req.method === 'POST') { // ページ送り: limit(1〜200) / offset。columns で一覧に出す項目を指定
+      const n = parseInt(body.limit, 10), limit = n >= 1 ? Math.min(n, 200) : 20, offset = Math.max(parseInt(body.offset, 10) || 0, 0);
+      const columns = Array.isArray(body.columns) ? body.columns.filter((c) => typeof c === 'string').slice(0, 40) : undefined;
+      const r = mm.search(actor, needTenant(), { where: body.where, sort: body.sort, status: body.status, limit, offset, columns });
+      return ok({ total: r.total, members: r.members, limit, offset });
+    }
     if ((m = /^\/members\/(\w+)$/.exec(path)) && req.method === 'GET') { const { member, items, notice, consents } = mm.profile(actor, needTenant(), m[1]); return ok({ member, items, notice, consents }); }
     if ((m = /^\/members\/(\w+)$/.exec(path)) && req.method === 'PATCH') { mm.updateByStaff(actor, needTenant(), m[1], body.values ?? {}); return ok(); }
     if ((m = /^\/members\/(\w+)\/withdraw$/.exec(path)) && req.method === 'POST') { mm.withdrawByAdmin(actor, needTenant(), m[1], body.reason); return ok(); }

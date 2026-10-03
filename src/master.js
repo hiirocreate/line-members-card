@@ -27,12 +27,19 @@ export const DEFAULT_MASTER = [
   { key: 'has_children', label: '子どもの有無', field_type: 'YESNO', sensitivity: 'PERSONAL' },
   { key: 'line_display_name', label: 'LINE表示名', field_type: 'TEXT', sensitivity: 'NORMAL' },
   { key: 'note', label: '備考', field_type: 'TEXTAREA', sensitivity: 'NORMAL' },
+  // 配信への同意 (チェックを入れた会員にだけ配信される。メールアドレスの登録だけでは同意にならない)
+  { key: 'consent_line', label: 'LINEでお知らせやクーポンを受け取る', field_type: 'CHECKBOX', sensitivity: 'NORMAL', consent_target: 'LINE',
+    purpose_text: '店舗からのお知らせやクーポンを、LINEでお送りするために利用します。いつでも会員証の画面から変更できます。' },
+  { key: 'consent_email', label: 'メールでお知らせを受け取る', field_type: 'CHECKBOX', sensitivity: 'NORMAL', consent_target: 'EMAIL',
+    purpose_text: '店舗からのお知らせを、メールでお送りするために利用します。' },
+  { key: 'consent_marketing', label: 'キャンペーン情報などの案内を受け取る', field_type: 'CHECKBOX', sensitivity: 'NORMAL', consent_target: 'MARKETING',
+    purpose_text: '店舗からのキャンペーン情報などを、ご案内するために利用します。' },
 ];
 
 export function seedMaster(store, now = new Date().toISOString()) {
   for (const m of DEFAULT_MASTER) {
     if (store.find('field_master', (r) => r.key === m.key)) continue;
-    store.insert('field_master', { options: [], purpose_text: '', core_column: '', enabled: true, created_at: now, ...m });
+    store.insert('field_master', { options: [], purpose_text: '', core_column: '', consent_target: '', enabled: true, created_at: now, ...m });
   }
   if (!store.find('settings', (r) => r.key === 'banned_terms')) {
     // 高リスク情報(医療/思想・信条/金融)は初期項目にせず、店舗が自由追加できないようにする

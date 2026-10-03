@@ -9,7 +9,7 @@ export const SHEETS = {
   members: ['member_id', 'tenant_id', 'user_id', 'member_number', 'name', 'phone', 'email',
     'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version', 'withdrawn_at', 'withdraw_reason'],
   field_master: ['key', 'label', 'field_type', 'sensitivity', 'purpose_text', 'core_column', 'options',
-    'enabled', 'created_at'],
+    'enabled', 'created_at', 'consent_target'],
   custom_fields: ['field_id', 'tenant_id', 'master_key', 'field_name', 'field_type', 'required', 'enabled',
     'display_order', 'options', 'placeholder', 'purpose_text', 'user_editable', 'visibility', 'sensitivity',
     'allow_other', 'consent_target', 'created_at', 'updated_at'],

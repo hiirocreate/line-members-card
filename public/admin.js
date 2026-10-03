@@ -141,7 +141,7 @@ async function formView() {
     const badges = el('div', {}, el('span', { className: 'badge' }, TYPES[f.field_type]), f.master_key ? el('span', { className: 'badge int' }, '標準') : el('span', { className: 'badge' }, 'カスタム'),
       f.visibility !== 'USER' ? el('span', { className: 'badge warn' }, VIS[f.visibility]) : null, !f.user_editable ? el('span', { className: 'badge' }, '店舗のみ変更可') : null,
       f.sensitivity !== 'NORMAL' ? el('span', { className: 'badge' }, f.sensitivity) : null);
-    const req = el('input', { type: 'checkbox', checked: f.required, disabled: !canEdit || f.visibility !== 'USER', onchange: run(null, async () => { await api(`/form/fields/${f.field_id}`, { method: 'PATCH', body: { required: req.checked } }); render(); }) });
+    const req = el('input', { type: 'checkbox', checked: f.required, disabled: !canEdit || f.visibility !== 'USER' || !!f.consent_target, onchange: run(null, async () => { await api(`/form/fields/${f.field_id}`, { method: 'PATCH', body: { required: req.checked } }); render(); }) });
     row.append(el('span', { className: 'handle', title: 'ドラッグで並び替え' }, '☰'), el('div', { className: 'name' }, el('b', {}, f.field_name), badges),
       el('label', { className: 'hint' }, req, ' 必須'));
     if (canEdit) row.append(btn(f.enabled ? '表示中' : '非表示', run(null, async () => { await api(`/form/fields/${f.field_id}/${f.enabled ? 'disable' : 'enable'}`, { method: 'POST' }); render(); }), 'sm'), btn('編集', () => fieldDialog(f), 'sm'));
@@ -152,8 +152,24 @@ async function formView() {
   const bar = canEdit ? el('div', { className: 'row', style: 'margin-bottom:12px' },
     btn('＋ 標準項目を追加', () => masterDialog(master.filter((m) => !used.has(m.key))), 'pri'), btn('＋ カスタム項目を追加', () => fieldDialog(null)),
     el('span', { className: 'sp', style: 'flex:1' }), tplSel, btn('テンプレート適用', run(null, async () => { if (confirm('テンプレートの項目を追加します(既存項目は変更されません)。')) { await api('/form/template', { method: 'POST', body: { name: tplSel.value } }); render(); } }))) : null;
-  layout(el('div', { className: 'grid' }, el('div', { className: 'card' }, el('h2', {}, '会員登録項目'), bar, list,
-    el('div', { className: 'hint' }, '変更は保存ボタン不要で即時反映されます(変更履歴はバージョン管理・監査ログに記録)。項目は削除ではなく「非表示」にし、過去の会員データは保持されます。')),
+  // 配信への同意 (チェックボックス): 表示するとチェックを入れた会員にだけ配信される
+  const CONSENTS = [['LINE', 'LINE配信', 'consent_line', 'お知らせ・クーポンをLINEで配信するための同意'], ['EMAIL', 'メール配信', 'consent_email', 'お知らせをメールで配信するための同意'], ['MARKETING', 'キャンペーン案内', 'consent_marketing', 'キャンペーン情報などの案内のための同意']];
+  const consentCard = el('div', { className: 'card' }, el('h2', {}, '配信への同意(チェックボックス)'),
+    el('div', { className: 'hint', style: 'margin-bottom:10px' }, '会員登録の画面に、同意のチェックボックスを出せます。チェックを入れた会員にだけ配信できます(メールアドレスや電話番号を登録しただけでは、同意したことになりません)。同意は必須にできません。既存の会員は、会員証の画面から、あとで同意できます。'),
+    CONSENTS.map(([target, title, key, desc]) => {
+      const f = fields.find((x) => x.consent_target === target);
+      const on = !!(f && f.enabled);
+      return el('div', { className: `field ${on ? '' : 'off'}` }, el('div', { className: 'name' }, el('b', {}, title), el('span', { className: 'hint' }, desc), f ? el('span', { className: 'hint' }, `表示文言: ${f.field_name}`) : null),
+        el('span', { className: `badge ${on ? 'int' : ''}` }, on ? '表示中' : (f ? '非表示' : '未設定')),
+        canEdit ? [f ? btn('文言を編集', () => fieldDialog(f), 'sm') : null,
+          btn(on ? '非表示にする' : '表示する', run(null, async () => {
+            if (f) await api(`/form/fields/${f.field_id}/${on ? 'disable' : 'enable'}`, { method: 'POST' });
+            else await api('/form/fields', { method: 'POST', body: { masterKey: key } });
+            render();
+          }), on ? 'sm' : 'sm pri')] : null);
+    }));
+  layout(el('div', { className: 'grid' }, el('div', {}, consentCard, el('div', { className: 'card' }, el('h2', {}, '会員登録項目'), bar, list,
+    el('div', { className: 'hint' }, '変更は保存ボタン不要で即時反映されます(変更履歴はバージョン管理・監査ログに記録)。項目は削除ではなく「非表示」にし、過去の会員データは保持されます。'))),
     el('div', { className: 'card' }, el('h2', {}, 'スマホプレビュー'), previewNode())));
 }
 
@@ -181,8 +197,12 @@ function fieldDialog(f) {
   const consent = el('select', {}, [['', 'なし'], ['EMAIL', 'メール配信への同意'], ['LINE', 'LINE配信への同意'], ['MARKETING', 'マーケティング利用への同意']].map(([v, t]) => el('option', { value: v, selected: v === (f?.consent_target ?? '') }, t)));
   const choiceBox = el('div', {}, lab('選択肢', opts, '「その他」を含めると自由入力欄を設定できます。削除した選択肢は新規入力から外れ、既存データは保持されます。'), el('label', { className: 'lb' }, other, ' 「その他」選択時に自由入力欄を表示'));
   const consentBox = lab('同意項目の種別', consent, '配信同意はこの項目でのみ付与されます(メールアドレス登録だけでは同意扱いになりません)。');
-  const sync = () => { choiceBox.style.display = CHOICE.includes(type.value) ? '' : 'none'; consentBox.style.display = type.value === 'CHECKBOX' ? '' : 'none'; };
-  type.addEventListener('change', sync); sync();
+  const sync = () => {
+    choiceBox.style.display = CHOICE.includes(type.value) ? '' : 'none'; consentBox.style.display = type.value === 'CHECKBOX' ? '' : 'none';
+    const isConsent = type.value === 'CHECKBOX' && !!consent.value; // 配信の同意は必須にできない
+    if (isConsent) required.checked = false; required.disabled = isConsent;
+  };
+  type.addEventListener('change', sync); consent.addEventListener('change', sync); sync();
   const save = run(err, async () => {
     const lines = opts.value.split('\n').map((x) => x.trim()).filter(Boolean);
     const common = { field_name: name.value.trim(), placeholder: ph.value, purpose_text: purpose.value, required: required.checked, user_editable: editable.checked, visibility: vis.value, allow_other: other.checked && CHOICE.includes(type.value) };
@@ -227,6 +247,16 @@ async function cardView() {
   const sample = { shop: server.tenantName, name: '山田 太郎', memberNumber: '000123', registeredAt: '2026-04-01T00:00:00Z', lastVisitAt: new Date().toISOString(), visitCount: 12 };
   const qr = makeQr('PREVIEW-SAMPLE', 190);
   const canvas = el('canvas', { className: 'card-canvas', style: 'width:100%;height:auto;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.25))' });
+  // プレビューのカードをクリックすると、その部分の入力欄へ移動する (店舗名・タイトル)
+  canvas.style.cursor = 'pointer'; canvas.title = 'クリックして店舗名・タイトルを編集';
+  canvas.addEventListener('click', (e) => {
+    const y = (e.offsetY / canvas.clientHeight) * CARD_H;
+    const key = y >= 230 && y <= 345 ? 'shop' : y < 130 ? 'title' : null;
+    const input = key && controls.querySelector(`[data-key="${key}"]`);
+    if (!input) return;
+    if (key === 'shop' && !design.shopName.show) { design.shopName.show = true; touch(); drawControls(); }
+    const target = controls.querySelector(`[data-key="${key}"]`); target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.focus(); target.select();
+  });
   const phone = el('div', { className: 'phone' });
   const err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' }), state = el('span', { className: 'hint' }, '');
 
@@ -238,7 +268,7 @@ async function cardView() {
     Object.assign(phone.style, { background: pg.backgroundColor, color: text });
     const btnStyle = `width:100%;padding:10px;margin-top:8px;border:0;border-radius:8px;background:${pg.accentColor};color:${contrast(pg.accentColor)}`;
     const qrBlock = design.qr === 'below' ? el('div', { style: 'background:#fff;padding:10px;border-radius:10px;margin:10px auto;width:140px;height:140px;display:flex;align-items:center;justify-content:center;color:#666;font-size:12px' }, 'QRコード') : null;
-    phone.replaceChildren(...[el('div', { style: 'font-weight:700;margin-bottom:6px' }, server.tenantName), canvas,
+    phone.replaceChildren(...[el('div', { style: 'font-weight:700;margin-bottom:6px' }, design.shopName.text || server.tenantName), canvas,
       el('div', { style: 'text-align:center;font-weight:700;font-size:12px;margin:8px 0' }, '最終来店: 2026/10/03 12:00(来店 12回)'), qrBlock,
       pg.welcomeText ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px;white-space:pre-wrap;text-align:center` }, pg.welcomeText) : null,
       el('button', { type: 'button', style: 'width:100%;padding:10px;margin-top:8px;border:0;border-radius:8px;background:#888;color:#fff' }, 'カード画像を保存'),
@@ -251,7 +281,7 @@ async function cardView() {
   const bindColor = (get, set) => { const i = el('input', { type: 'color', value: get(), oninput: () => { set(i.value); touch(); } }); return i; };
   const bindSelect = (opts, get, set) => { const s = el('select', { onchange: () => { set(s.value); touch(); redraw(); drawControls(); } }, opts.map(([v, t]) => el('option', { value: v, selected: v === get() }, t))); return s; };
   const bindCheck = (text, get, set) => { const i = el('input', { type: 'checkbox', checked: get(), onchange: () => { set(i.checked); touch(); } }); return el('label', { className: 'lb', style: 'font-weight:400' }, i, ` ${text}`); };
-  const bindText = (get, set, ph, max) => { const i = el('input', { type: 'text', value: get(), placeholder: ph ?? '', maxLength: max, oninput: () => { set(i.value); touch(); } }); return i; };
+  const bindText = (get, set, ph, max, key) => { const i = el('input', { type: 'text', value: get(), placeholder: ph ?? '', maxLength: max, oninput: () => { set(i.value); touch(); } }); if (key) i.dataset.key = key; return i; };
   const bindRange = (min, max, step, get, set, unit = '') => { const lab2 = el('span', { className: 'hint' }, ` ${get()}${unit}`); const i = el('input', { type: 'range', min, max, step, value: get(), oninput: () => { set(Number(i.value)); lab2.textContent = ` ${i.value}${unit}`; touch(); } }); return el('div', {}, i, lab2); };
 
   // 画像のアップロード (kind: logo | background)
@@ -289,10 +319,10 @@ async function cardView() {
         lab('位置', bindSelect([['top-left', '左上'], ['top-center', '中央'], ['top-right', '右上']], () => design.logo.position, (v) => { design.logo.position = v; })),
         lab('大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => design.logo.size, (v) => { design.logo.size = v; }))),
       sec('文言', bindCheck('店舗名を表示する', () => design.shopName.show, (v) => { design.shopName.show = v; }),
-        lab('店舗名(空欄なら登録の店舗名)', bindText(() => design.shopName.text, (v) => { design.shopName.text = v; }, server.tenantName, 30)),
+        lab('カードに表示する店舗名', bindText(() => design.shopName.text, (v) => { design.shopName.text = v; }, server.tenantName, 30, 'shop'), `カードと、会員画面の見出しに表示されます。空欄のときは、登録されている店舗名「${server.tenantName}」を使います。プレビューのカードの店舗名をクリックしても編集できます。`),
         lab('店舗名の大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => design.shopName.size, (v) => { design.shopName.size = v; })),
         lab('店舗名の位置', bindSelect([['left', '左'], ['center', '中央']], () => design.shopName.align, (v) => { design.shopName.align = v; })),
-        lab('カードのタイトル', bindText(() => design.title, (v) => { design.title = v; }, 'MEMBER CARD', 24))),
+        lab('カードのタイトル', bindText(() => design.title, (v) => { design.title = v; }, 'MEMBER CARD', 24, 'title'))),
       sec('カードに表示する項目', el('div', { className: 'hint' }, '会員番号は常に表示されます。'), bindCheck('氏名', () => design.fields.name, (v) => { design.fields.name = v; }), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
         bindCheck('最終来店日', () => design.fields.lastVisit, (v) => { design.fields.lastVisit = v; }), bindCheck('来店回数', () => design.fields.visitCount, (v) => { design.fields.visitCount = v; }),
         lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)']], () => design.qr, (v) => { design.qr = v; }), 'カードの中に入れると、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。')),
@@ -336,7 +366,7 @@ function condBuilder(state) {
     const v = el('input', { type: 'text', value: c.value ?? '', placeholder: '値', oninput: () => { c.value = v.value; } });
     return el('div', { className: 'cond' }, fs, os, v, btn('×', () => { state.conds.splice(i, 1); draw(); }, 'sm'));
   }));
-  const logic = el('select', { style: 'width:auto', onchange: () => { state.logic = logic.value; } },
+  const logic = el('select', { style: 'width:auto;flex:0 0 auto', onchange: () => { state.logic = logic.value; } },
     [['AND', 'すべての条件に一致 (AND)'], ['OR', 'いずれかの条件に一致 (OR)']].map(([k, t]) => el('option', { value: k, selected: k === state.logic }, t)));
   draw();
   return {
@@ -345,21 +375,90 @@ function condBuilder(state) {
   };
 }
 
+// 一覧の表示項目 (標準項目 + 会員登録フォームの全項目)。選択と並び順は、この端末のブラウザに保存される。
+const BUILTIN_COLS = [['member_number', '会員番号'], ['status', '状態'], ['registered_at', '登録日'], ['visit_count', '来店回数'], ['last_visit_at', '最終来店']];
+const colStoreKey = () => `mc:${ST.tenant ?? ST.me.tenantId}:${ST.me.id}`;
+const prefs = {
+  load() { try { return JSON.parse(localStorage.getItem(colStoreKey()) ?? 'null'); } catch { return null; } },
+  save(v) { try { v ? localStorage.setItem(colStoreKey(), JSON.stringify(v)) : localStorage.removeItem(colStoreKey()); } catch { /* 保存できなくても動作する */ } },
+};
+const jst = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+const jstDay = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
+const dt = (iso, withTime) => (iso && !Number.isNaN(Date.parse(iso)) ? (withTime ? jst : jstDay).format(new Date(iso)) : '-');
+const PAGE_SIZES = [20, 50, 100];
+const listState = { page: 0, size: 20, cols: null };
+
 async function membersView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   ST.fields = (await api('/form')).fields;
+  const fieldCols = ST.fields.map((f) => [f.field_id, f.field_name + (f.enabled ? '' : '(非表示中)')]);
+  const allCols = [...BUILTIN_COLS, ...fieldCols], label = (id) => allCols.find(([k]) => k === id)?.[1] ?? id;
+  const isField = (id) => ST.fields.some((f) => f.field_id === id);
+  const defaults = () => ['member_number', ...ST.fields.filter((f) => f.enabled).slice(0, 4).map((f) => f.field_id), 'registered_at', 'visit_count', 'last_visit_at', 'status'];
+  const saved = prefs.load();
+  if (saved?.size && PAGE_SIZES.includes(saved.size)) listState.size = saved.size;
+  const valid = (list) => (list ?? []).filter((id) => allCols.some(([k]) => k === id));
+  listState.cols = valid(listState.cols ?? saved?.cols);
+  if (!listState.cols.length) listState.cols = defaults();
+  const persist = () => prefs.save({ cols: listState.cols, size: listState.size });
+
   const cb = condBuilder(memberState);
   const out = el('div'), err = el('div', { className: 'err' });
-  const search = run(err, async () => {
-    const r = await api('/members/search', { method: 'POST', body: { where: cb.where(), sort: sortSel, limit: 200, status: memberState.status } });
-    out.replaceChildren(el('div', { className: 'hint' }, `${r.total}件`), el('table', {}, el('tr', {}, ['会員番号', '氏名', '電話番号', '登録日', '来店回数', '最終来店', '状態'].map((h) => el('th', {}, h))),
-      r.members.map((m) => el('tr', { className: 'click', onclick: () => memberDialog(m.member_id) }, [m.member_number, m.name, m.phone, m.registered_at.slice(0, 10), m.visit_count, m.last_visit_at.slice(0, 10), m.status === 'WITHDRAWN' ? '退会済み' : '有効'].map((x) => el('td', {}, String(x ?? '')))))));
-  });
-  const sortS = el('select', { style: 'width:auto', onchange: () => { sortSel.field = sortS.value; } }, [['registered_at', '登録日'], ['visit_count', '来店回数'], ['last_visit_at', '最終来店'], ...ST.fields.map((f) => [f.field_id, f.field_name])].map(([k, t]) => el('option', { value: k, selected: k === sortSel.field }, t)));
-  const dirS = el('select', { style: 'width:auto', onchange: () => { sortSel.dir = dirS.value; } }, [['desc', '降順'], ['asc', '昇順']].map(([k, t]) => el('option', { value: k, selected: k === sortSel.dir }, t)));
-  const stS = el('select', { style: 'width:auto', onchange: () => { memberState.status = stS.value; } }, [['ACTIVE', '有効な会員'], ['WITHDRAWN', '退会済みの会員'], ['ALL', 'すべて']].map(([k, t]) => el('option', { value: k, selected: k === memberState.status }, t)));
+  const cell = (m, id) => {
+    if (id === 'member_number') return m.member_number;
+    if (id === 'status') return m.status === 'WITHDRAWN' ? '退会済み' : '有効';
+    if (id === 'registered_at') return dt(m.registered_at, false);
+    if (id === 'visit_count') return String(m.visit_count ?? 0);
+    if (id === 'last_visit_at') return dt(m.last_visit_at, true);
+    return m.values?.[id] || '-';
+  };
+  const sortBy = (id) => { sortSel = sortSel.field === id ? { field: id, dir: sortSel.dir === 'asc' ? 'desc' : 'asc' } : { field: id, dir: ['registered_at', 'visit_count', 'last_visit_at'].includes(id) ? 'desc' : 'asc' }; listState.page = 0; search(); };
+
+  const pager = (total) => {
+    const pages = Math.max(1, Math.ceil(total / listState.size)), cur = Math.min(listState.page, pages - 1);
+    const go = (n) => { listState.page = Math.min(Math.max(n, 0), pages - 1); search(); };
+    const from = total ? cur * listState.size + 1 : 0, to = Math.min(total, (cur + 1) * listState.size);
+    const nums = []; for (let i = Math.max(0, cur - 2); i <= Math.min(pages - 1, cur + 2); i++) nums.push(i);
+    const size = el('select', { style: 'width:auto;flex:0 0 auto', onchange: () => { listState.size = Number(size.value); listState.page = 0; persist(); search(); } },
+      PAGE_SIZES.map((n) => el('option', { value: n, selected: n === listState.size }, `${n}件ずつ`)));
+    return el('div', { className: 'row', style: 'margin:8px 0;justify-content:space-between' }, el('span', { className: 'hint' }, `${total}件中 ${from}〜${to}件`),
+      el('div', { className: 'row' }, btn('« 最初', () => go(0), 'sm'), btn('‹ 前へ', () => go(cur - 1), 'sm'),
+        ...nums.map((i) => btn(String(i + 1), () => go(i), i === cur ? 'sm pri' : 'sm')), btn('次へ ›', () => go(cur + 1), 'sm'), btn('最後 »', () => go(pages - 1), 'sm'), size));
+  };
+
+  async function search() {
+    err.textContent = '';
+    try {
+      const fieldIds = listState.cols.filter(isField);
+      const r = await api('/members/search', { method: 'POST', body: { where: cb.where(), sort: sortSel, limit: listState.size, offset: listState.page * listState.size, status: memberState.status, columns: fieldIds } });
+      if (r.members.length === 0 && r.total > 0 && listState.page > 0) { listState.page = Math.max(0, Math.ceil(r.total / listState.size) - 1); return search(); } // 件数が減って、最後のページが空になった場合
+      const arrow = (id) => (sortSel.field === id ? (sortSel.dir === 'asc' ? ' ▲' : ' ▼') : '');
+      out.replaceChildren(pager(r.total), el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, listState.cols.map((id) => el('th', { style: 'cursor:pointer;white-space:nowrap', title: 'クリックで並び替え', onclick: () => sortBy(id) }, label(id) + arrow(id)))),
+        r.members.map((m) => el('tr', { className: 'click', onclick: () => memberDialog(m.member_id) }, listState.cols.map((id) => el('td', {}, cell(m, id)))))),
+      r.total === 0 ? el('div', { className: 'hint', style: 'padding:12px' }, '該当する会員がいません') : null), pager(r.total));
+    } catch (e) { err.className = 'err'; err.textContent = errText(e); }
+  }
+
+  // 表示項目の設定: 表示する/しない・並び順 (▲▼)
+  const colsDialog = () => {
+    let order = [...listState.cols, ...allCols.map(([k]) => k).filter((k) => !listState.cols.includes(k))];
+    let chosen = new Set(listState.cols);
+    const list = el('div');
+    const draw = () => list.replaceChildren(...order.map((id, i) => el('div', { className: 'field', style: 'padding:6px 10px' },
+      el('input', { type: 'checkbox', checked: chosen.has(id), onchange: (e) => { e.target.checked ? chosen.add(id) : chosen.delete(id); } }),
+      el('div', { className: 'name' }, label(id)),
+      btn('▲', () => { if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; draw(); } }, 'sm'), btn('▼', () => { if (i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; draw(); } }, 'sm'))));
+    draw();
+    const e2 = el('div', { className: 'err' });
+    const d = el('dialog', {}, el('h2', {}, '一覧の表示項目'), el('div', { className: 'hint' }, 'チェックを入れた項目が表示されます。▲▼で並び順を変えられます。この設定は、このブラウザに保存されます。'), list, e2,
+      el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('初期設定に戻す', () => { order = [...defaults(), ...allCols.map(([k]) => k).filter((k) => !defaults().includes(k))]; chosen = new Set(defaults()); draw(); }, 'sm'), btn('キャンセル', () => d.close()),
+        btn('適用', () => { const cols = order.filter((id) => chosen.has(id)); if (!cols.length) { e2.textContent = '1つ以上の項目を選んでください'; return; } listState.cols = cols; persist(); d.close(); search(); }, 'pri')));
+    document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+  };
+
+  const stS = el('select', { style: 'width:auto;flex:0 0 auto', onchange: () => { memberState.status = stS.value; } }, [['ACTIVE', '有効な会員'], ['WITHDRAWN', '退会済みの会員'], ['ALL', 'すべて']].map(([k, t]) => el('option', { value: k, selected: k === memberState.status }, t)));
   const cards = [el('div', { className: 'card' }, el('h2', {}, '絞り込み'), cb.node,
-    el('div', { className: 'row', style: 'margin-top:8px' }, stS, el('span', { className: 'sp', style: 'flex:1' }), '並び順', sortS, dirS, btn('検索', search, 'pri')), err),
+    el('div', { className: 'row', style: 'margin-top:8px' }, stS, el('span', { className: 'sp', style: 'flex:1' }), btn('表示項目を設定', colsDialog), btn('検索', () => { listState.page = 0; search(); }, 'pri')), err),
     el('div', { className: 'card' }, out)];
   if (can('EXPORT_MEMBERS')) cards.push(exportCard(cb.where));
   layout(el('div', {}, cards));

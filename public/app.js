@@ -81,7 +81,7 @@ function showCard(me) {
   }
   const refreshMe = async () => { try { cur = await api('me'); visit.textContent = visitText(cur); paint(); } catch { /* 一時的な失敗は無視 */ } };
 
-  root.replaceChildren(el('h1', {}, me.shop), canvas, visit);
+  root.replaceChildren(el('h1', {}, design.shopName.text || me.shop), canvas, visit); // 見出しも、デザインで設定した店舗名に合わせる
   if (design.qr === 'below') root.append(el('div', { className: 'card', style: 'text-align:center' }, qrBox));
   root.append(el('small', { style: 'display:block;text-align:center;margin-bottom:8px' }, '来店時にこの画面を店舗スタッフにお見せください(QRは自動で更新されます)'));
   paint(); // 画像の読み込み前にも、まず文字だけで描く
@@ -95,6 +95,14 @@ function showCard(me) {
   root.append(el('button', { className: 'sub', onclick: () => showCardImage(cur, design, logo, bg) }, 'カード画像を保存'));
   if (me.shopcardUrl && design.page.showShopcard) root.append(el('button', { onclick: () => openLine(me.shopcardUrl) }, '公式LINEのショップカードを開く'));
   if (me.notice) root.append(el('div', { className: 'card notice' }, me.notice));
+  // LINEでのお知らせの受け取り (オン/オフ)。登録時に同意していなくても、ここからいつでも変更できる
+  const lineField = form.fields.find((f) => f.consent_target === 'LINE' && f.user_editable);
+  if (lineField) {
+    const on = !!me.consents?.LINE;
+    root.append(el('div', { className: 'card' }, el('b', {}, 'LINEでのお知らせ'), el('div', { style: 'margin:6px 0' }, on ? '現在: 受け取る(オン)' : '現在: 受け取らない(オフ)'),
+      lineField.purpose_text ? el('small', {}, lineField.purpose_text) : null,
+      el('button', { className: on ? 'sub' : '', onclick: async () => { try { await api('me', { method: 'PATCH', body: { values: { [lineField.field_id]: !on } } }); showCard(await api('me')); } catch (e) { showError(e); } } }, on ? 'お知らせを受け取らない' : 'お知らせを受け取る')));
+  }
   if (design.page.showInfoList) {
     const dl = el('dl');
     for (const i of me.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value));

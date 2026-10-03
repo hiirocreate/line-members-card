@@ -211,7 +211,8 @@ export class MemberService {
     return { fields, rows: members.map((m) => ({ m, v: vals.get(m.member_id) ?? {} })) };
   }
   // status: 'ACTIVE'(既定) | 'WITHDRAWN' | 'ALL'。退会済みは既定で除外される。
-  search(actor, tenantId, { where, sort, limit = 100, offset = 0, status = 'ACTIVE' } = {}) {
+  // columns: 一覧に表示する項目(field_id)。指定すると、各会員に values: { field_id: 表示用の文字列 } が付く (権限のない項目は含まれない)
+  search(actor, tenantId, { where, sort, limit = 100, offset = 0, status = 'ACTIVE', columns } = {}) {
     require_(actor, 'MEMBER_VIEW', tenantId);
     if (!['ACTIVE', 'WITHDRAWN', 'ALL'].includes(status)) throw new ValidationError('statusが不正です');
     const { fields, rows: all } = this.#rows(actor, tenantId);
@@ -256,7 +257,10 @@ export class MemberService {
         return dir * (num ? sx - sy : String(sx).localeCompare(String(sy), 'ja'));
       });
     }
-    return { total: res.length, members: res.slice(offset, offset + limit).map((r) => r.m), _rows: res };
+    const colFields = (columns ?? []).map((id) => fieldById.get(id)).filter(Boolean);
+    const members = res.slice(offset, offset + limit).map((r) => (colFields.length
+      ? { ...r.m, values: Object.fromEntries(colFields.map((f) => { const v = this.#read(r.m, f, r.v); return [f.field_id, v === null ? '' : displayValue(f, v)]; })) } : r.m));
+    return { total: res.length, members, _rows: res };
   }
 
   // ---- CSV (Excelで開けるUTF-8 BOM付き) 出力 ----

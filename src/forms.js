@@ -85,7 +85,8 @@ export class FormService {
       if (f.allow_other && !vals.has('その他')) throw new ValidationError('「その他」入力を許可するには選択肢に「その他」が必要です');
     } else if (f.options?.length) throw new ValidationError('選択式以外に選択肢は設定できません');
     if (f.required && f.visibility !== 'USER') throw new ValidationError('会員に表示しない項目は必須にできません');
-    if (f.field_type === 'CHECKBOX' && f.required && f.consent_target) { /* 同意必須は許可 */ }
+    // 配信への同意は任意でなければならない (同意しないと登録できない形にしない)
+    if (f.consent_target && f.required) throw new ValidationError('配信への同意は必須にできません(任意のチェックボックスにしてください)');
     if (f.consent_target && !['LINE', 'EMAIL', 'MARKETING'].includes(f.consent_target)) throw new ValidationError('同意の対象が不正です');
     if (f.consent_target && f.field_type !== 'CHECKBOX') throw new ValidationError('同意項目はCHECKBOXにしてください');
     if (f.user_editable && f.visibility !== 'USER') throw new ValidationError('会員に表示しない項目はユーザー変更可にできません');
@@ -107,7 +108,7 @@ export class FormService {
     }
     return this.#insert(actor, tenantId, {
       master_key: masterKey, field_name: m.label, field_type: m.field_type, options: m.options, purpose_text: m.purpose_text,
-      sensitivity: m.sensitivity, ...overrides,
+      sensitivity: m.sensitivity, consent_target: m.consent_target || null, ...overrides,
     });
   }
 

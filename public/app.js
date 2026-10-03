@@ -83,7 +83,7 @@ function showCard(me, opts = {}) {
     try {
       const { code, expiresAt } = await api('qr');
       if (privacy) return;
-      if (design.qr === 'inside') { qrCanvas = makeQr(code, 190); paint(); } else { qrBox.replaceChildren(); new QRCode(qrBox, { text: code, width: 180, height: 180 }); }
+      if (design.qr === 'inside') { qrCanvas = makeQr(code, 190); paint(); } else { qrBox.replaceChildren(); new QRCode(qrBox, { text: code, width: 150, height: 150 }); }
       clearTimeout(qrTimer);
       qrTimer = setTimeout(refreshQr, Math.max(10_000, expiresAt - Date.now() - 60_000));
     } catch (e) { (design.qr === 'inside' ? visit : qrBox).append(el('div', { className: 'err' }, e.message)); }
@@ -149,7 +149,7 @@ const chip = (icon, label, onclick, extra = '') => el('button', { className: `ch
 
 // 下からのシート(ダイアログ)。LINE内ブラウザでも使える標準の <dialog>
 function sheet(title, ...nodes) {
-  const d = el('dialog', { className: 'sheet' }, el('h2', {}, title), ...nodes, el('button', { className: 'chip', style: 'width:100%;margin-top:12px;padding:11px', onclick: () => d.close() }, '閉じる'));
+  const d = el('dialog', { className: 'sheet' }, el('h2', {}, title), ...nodes, el('button', { className: 'chip', style: 'width:100%;margin-top:10px;padding:9px', onclick: () => d.close() }, '閉じる'));
   d.addEventListener('close', () => d.remove()); document.body.append(d); d.showModal(); return d;
 }
 const toggleRow = (label, sub, checked, onchange, disabled = false) => {

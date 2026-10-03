@@ -56,3 +56,12 @@ test('姓・名が別項目でもカードに出せる(parts)・誕生日配信�
   assert.equal(app.members.cardName(T, m), '山田 太郎');
   assert.equal(app.members.cardNameParts(T, { ...m, member_id: 'none' }), null);
 });
+
+test('姓・名の項目名の判定: 「姓(漢字)」は対象、読み仮名や「氏名」は対象外', () => {
+  const app = createApp(null, { secret: 'c'.repeat(40) });
+  app.forms.createTenant(OP, T, 'テスト店');
+  const mk = (field_name) => app.forms.addCustomField(ADMIN_A, T, { field_name, field_type: 'TEXT', required: false }).field_id;
+  const a = mk('姓(漢字)'), b = mk('名(漢字)'), c = mk('姓(カナ)'), d = mk('名(カナ)');
+  app.members.register(T, 'U1', { [a]: '山田', [b]: '太郎', [c]: 'ヤマダ', [d]: 'タロウ' }, { confirmed: true });
+  assert.deepEqual(app.members.cardNameParts(T, app.members.findByUser(T, 'U1')), { family: '山田', given: '太郎' });
+});

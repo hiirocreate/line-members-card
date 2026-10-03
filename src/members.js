@@ -10,6 +10,9 @@ import { buildXlsx } from './xlsx.js';
 const now = () => new Date().toISOString();
 export const UNREGISTERED = '未登録';
 
+// 姓・名の項目名 (「姓」「姓(漢字)」など。読み仮名の項目や「氏名」は含めない)
+const NOT_KANA = (re) => ({ test: (t) => re.test(t) && !/カナ|かな|ふりがな|フリガナ|ｶﾅ|kana/i.test(t) });
+const FAMILY_LABEL = NOT_KANA(/^(姓|苗字|名字|氏(?!名))/), GIVEN_LABEL = NOT_KANA(/^名(?:[（(].*[）)])?$/);
 export class MemberService {
   constructor(store, forms, vault = null) { this.store = store; this.forms = forms; this.vault = vault; this.usedNonces = new Map(); }
 
@@ -132,7 +135,7 @@ export class MemberService {
     const fields = this.forms.fields(tenantId), vals = this.#valuesOf(tenantId, m.member_id);
     const pick = (key, re) => fields.find((f) => f.master_key === key) ?? fields.find((f) => !f.master_key && f.field_type === 'TEXT' && re.test(f.field_name.trim()));
     const val = (f) => { const v = f ? this.#read(m, f, vals) : null; return typeof v === 'string' ? v.trim() : ''; };
-    const family = val(pick('last_name', /^(姓|苗字|名字|氏|せい|セイ)$/)), given = val(pick('first_name', /^(名|めい|メイ)$/));
+    const family = val(pick('last_name', FAMILY_LABEL)), given = val(pick('first_name', GIVEN_LABEL));
     return family || given ? { family, given } : null;
   }
   // 会員証に出す氏名: 氏名項目(コア列)が空なら、「氏名/名前」という名前の文字項目の値を使う

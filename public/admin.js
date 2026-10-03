@@ -107,7 +107,13 @@ function layout(content) {
     head.append(sel);
   }
   head.append(el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { if (formDirty() && !confirm('保存していない変更があります。破棄してログアウトしますか?')) return; discardFormDraft(); store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
-  root.replaceChildren(head, el('nav', {}, tabs.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => { if (ST.tab === k && rendering) return; if (ST.tab === 'form' && k !== 'form' && formDirty()) { if (!confirm('保存していない変更があります。破棄して移動しますか?')) return; discardFormDraft(); } ST.tab = k; render(); } }, t))), el('main', {}, content));
+  // スマホ・タブレット: タブはハンバーガーメニューにまとめる(PCでは従来どおり横に並ぶ)
+  const nav = el('nav', { id: 'tabs' });
+  const burger = el('button', { className: 'burger', 'aria-label': 'メニュー', 'aria-expanded': 'false', 'aria-controls': 'tabs', onclick: () => { const o = nav.classList.toggle('open'); burger.setAttribute('aria-expanded', String(o)); burger.classList.toggle('on', o); } },
+    el('span', { className: 'bars' }), el('span', { className: 'cur' }, tabs.find(([k]) => k === ST.tab)?.[1] ?? 'メニュー'));
+  head.prepend(burger);
+  nav.append(...tabs.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => { if (ST.tab === k && rendering) return; if (ST.tab === 'form' && k !== 'form' && formDirty()) { if (!confirm('保存していない変更があります。破棄して移動しますか?')) return; discardFormDraft(); } ST.tab = k; render(); } }, t)));
+  root.replaceChildren(head, nav, el('main', {}, content));
 }
 
 // ---------- フォーム設定 ----------

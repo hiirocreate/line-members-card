@@ -113,7 +113,7 @@ openssl rand -hex 24 | tr -d '\n' | gcloud secrets create cron-secret --data-fil
 gcloud secrets add-iam-policy-binding cron-secret \
   --member="serviceAccount:$(gcloud projects describe $(gcloud config get-value project) --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
   --role=roles/secretmanager.secretAccessor
-# 2) Cloud Run に渡して再デプロイ (§4 のデプロイコマンドの --set-secrets に ,CRON_SECRET=cron-secret:latest を追加)
+# 2) Cloud Run に渡して再デプロイ (§3 のデプロイコマンドの --set-secrets に ,CRON_SECRET=cron-secret:latest を追加)
 # 3) 毎朝9時(日本時間)に呼び出す
 gcloud services enable cloudscheduler.googleapis.com
 gcloud scheduler jobs create http birthday-daily --location=asia-northeast1 \

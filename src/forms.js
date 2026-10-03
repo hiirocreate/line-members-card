@@ -52,15 +52,61 @@ export class FormService {
     this.cache.set(tenantId, { version, form });
     return form;
   }
+  // 変更の確定: バージョンを上げて履歴を残し、キャッシュを無効化する。一括保存の最中は、最後に1回だけ確定する。
   #changed(tenantId, actor) {
+    if (this.batch) { this.batch.dirty = true; return this.#version(tenantId) + 1; }
+    return this.#commit(tenantId, actor);
+  }
+  #version(tenantId) {
     const t = this.store.find('tenants', (r) => r.tenant_id === tenantId);
     if (!t) throw new ValidationError('店舗が存在しません');
-    const version = t.form_version + 1;
+    return Number(t.form_version) || 0;
+  }
+  #commit(tenantId, actor) {
+    const version = this.#version(tenantId) + 1;
     this.store.update('tenants', (r) => r.tenant_id === tenantId, { form_version: version });
     this.store.insert('form_versions', { tenant_id: tenantId, version, snapshot: this.fields(tenantId, { includeDisabled: true }),
       created_by: actor.id, created_at: now() });
     this.cache.delete(tenantId); // キャッシュ無効化
     return version;
+  }
+  version(tenantId) { return this.#version(tenantId); }
+
+  // 一括保存: 画面で下書き編集した変更を、1回で反映する。全部成功するか、全部取り消すか(途中で失敗したら元に戻す)。
+  // baseVersion: 編集を始めたときのバージョン。他の管理者が先に保存していたら、上書きせずに拒否する。
+  // ops: { op:'add', tempId, masterKey, overrides } | { op:'add', tempId, field } | { op:'update', id, patch } | { op:'enable', id, enabled } | { op:'order', ids }
+  //      id / ids には、同じ一括保存の中で作る項目の tempId も使える。
+  applyBatch(actor, tenantId, { baseVersion, ops }) {
+    require_(actor, 'FORM_EDIT', tenantId);
+    if (!Array.isArray(ops) || ops.length === 0) throw new ValidationError('変更がありません');
+    if (ops.length > 300) throw new ValidationError('一度に保存できる変更が多すぎます');
+    if (baseVersion !== this.#version(tenantId)) throw Object.assign(new ValidationError('他の管理者が先に変更を保存しました。画面を読み込み直してください(未保存の変更は破棄されます)'), { code: 'conflict' });
+    return this.store.transaction(['custom_fields', 'tenants', 'form_versions', 'audit_logs'], () => {
+      const ids = new Map(); // tempId -> 実際の field_id
+      const real = (id) => { const r = ids.get(id) ?? id; if (typeof r !== 'string') throw new ValidationError('項目の指定が不正です'); return r; };
+      const names = new Map();
+      let dirty = false;
+      this.batch = { dirty: false };
+      try {
+        ops.forEach((o, i) => {
+          const where = () => `(${i + 1}件目の変更${names.get(i) ? `: ${names.get(i)}` : ''})`;
+          try {
+            if (o.op === 'add') {
+              names.set(i, o.field?.field_name ?? o.overrides?.field_name ?? o.masterKey);
+              const f = o.masterKey ? this.addFromMaster(actor, tenantId, o.masterKey, o.overrides ?? {}) : this.addCustomField(actor, tenantId, o.field ?? {});
+              if (o.tempId) ids.set(o.tempId, f.field_id);
+            } else if (o.op === 'update') this.updateField(actor, tenantId, real(o.id), o.patch ?? {});
+            else if (o.op === 'enable') this.setEnabled(actor, tenantId, real(o.id), !!o.enabled);
+            else if (o.op === 'order') this.reorder(actor, tenantId, (o.ids ?? []).map(real));
+            else throw new ValidationError('未対応の変更です');
+          } catch (e) { if (e instanceof ValidationError) { e.message = `${e.message} ${where()}`; } throw e; }
+        });
+        dirty = this.batch.dirty;
+      } finally { this.batch = null; }
+      const version = dirty ? this.#commit(tenantId, actor) : this.#version(tenantId);
+      audit(this.store, { tenant_id: tenantId, actor, action: 'FORM_BATCH_SAVE', target: 'form', detail: { operations: ops.length, version } });
+      return { version, fields: this.fields(tenantId, { includeDisabled: true }) };
+    });
   }
   versions(tenantId) { return this.store.select('form_versions', (v) => v.tenant_id === tenantId); }
 

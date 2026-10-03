@@ -101,12 +101,12 @@ function layout(content) {
   const tabs = [...TABS.filter(([k]) => (k === 'messages' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));
   if (ST.me.role === 'OPERATOR') {
-    const sel = el('select', { style: 'width:auto', onchange: () => { ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
+    const sel = el('select', { style: 'width:auto', onchange: () => { if (formDirty() && !confirm('保存していない変更があります。破棄して店舗を切り替えますか?')) { sel.value = ST.tenant ?? ''; return; } discardFormDraft(); ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
       ST.tenants.map((t) => el('option', { value: t.tenant_id, selected: t.tenant_id === ST.tenant }, `${t.name} (${t.tenant_id})`)));
     head.append(sel);
   }
-  head.append(el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
-  root.replaceChildren(head, el('nav', {}, tabs.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => { if (ST.tab === k && rendering) return; ST.tab = k; render(); } }, t))), el('main', {}, content));
+  head.append(el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { if (formDirty() && !confirm('保存していない変更があります。破棄してログアウトしますか?')) return; discardFormDraft(); store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
+  root.replaceChildren(head, el('nav', {}, tabs.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => { if (ST.tab === k && rendering) return; if (ST.tab === 'form' && k !== 'form' && formDirty()) { if (!confirm('保存していない変更があります。破棄して移動しますか?')) return; discardFormDraft(); } ST.tab = k; render(); } }, t))), el('main', {}, content));
 }
 
 // ---------- フォーム設定 ----------
@@ -119,71 +119,139 @@ function previewNode() {
   return box;
 }
 
+// ---------- 会員登録フォーム (下書き → 「保存」で一括反映) ----------
+// 画面での変更は、まず手元の下書きにだけ反映され、プレビューも下書きの内容を表示する。
+// 「保存」を押すと、まとめて1回で反映する(途中で失敗したら全部取り消し)。保存前に別のタブへ移るときは確認する。
+let formDraft = null; // { tenant, version, orig, fields, master, templates, interest, seq }
+const ATTRS = ['field_name', 'required', 'placeholder', 'purpose_text', 'user_editable', 'visibility', 'allow_other', 'consent_target'];
+const visVals = (f) => visibleOpts(f).map((o) => o.value);
+const sameAttrs = (a, b) => ATTRS.every((k) => (a[k] ?? '') === (b[k] ?? '')) && JSON.stringify(visVals(a)) === JSON.stringify(visVals(b)) && !!a.enabled === !!b.enabled;
+const formDirty = () => !!formDraft && buildOps(formDraft).length > 0;
+
+// 下書きと、サーバー上の内容の差分を、一括保存の操作の並び(追加 → 更新 → 表示切替 → 並び順)にする
+function buildOps(d) {
+  const orig = new Map(d.orig.map((f) => [f.field_id, f])), ops = [];
+  const pick = (f) => ({ field_name: f.field_name, required: !!f.required, placeholder: f.placeholder ?? '', purpose_text: f.purpose_text ?? '', user_editable: f.user_editable !== false, visibility: f.visibility, allow_other: !!f.allow_other, consent_target: f.consent_target || null });
+  const news = d.fields.filter((f) => f._new);
+  for (const f of news) {
+    const attrs = pick(f);
+    if (f.master_key) ops.push({ op: 'add', tempId: f.field_id, masterKey: f.master_key, overrides: { ...attrs, options: f.options.map((o) => ({ ...o })) } });
+    else ops.push({ op: 'add', tempId: f.field_id, field: { ...attrs, field_type: f.field_type, options: visVals(f) } });
+  }
+  for (const f of d.fields.filter((x) => !x._new)) {
+    const o = orig.get(f.field_id); const patch = {};
+    for (const k of ATTRS) if ((f[k] ?? '') !== (o[k] ?? '')) patch[k] = f[k];
+    if (JSON.stringify(visVals(f)) !== JSON.stringify(visVals(o))) patch.options = visVals(f);
+    if (Object.keys(patch).length) ops.push({ op: 'update', id: f.field_id, patch });
+  }
+  for (const f of d.fields) if ((f._new && !f.enabled) || (!f._new && !!f.enabled !== !!orig.get(f.field_id).enabled)) ops.push({ op: 'enable', id: f.field_id, enabled: !!f.enabled });
+  const expected = [...d.orig.map((f) => f.field_id), ...news.map((f) => f.field_id)];
+  if (JSON.stringify(expected) !== JSON.stringify(d.fields.map((f) => f.field_id))) ops.push({ op: 'order', ids: d.fields.map((f) => f.field_id) });
+  return ops;
+}
+async function loadFormDraft() {
+  const [g, { master }] = await Promise.all([api('/form'), api('/master')]);
+  formDraft = { tenant: ST.tenant, version: g.version, orig: structuredClone(g.fields), fields: structuredClone(g.fields), master, templates: g.templates, interest: g.interest, seq: 0 };
+}
+const discardFormDraft = () => { formDraft = null; };
+// 下書きに、標準項目を追加 (すでにあれば再表示するだけ)
+function draftAddMaster(d, key, required = false) {
+  const ex = d.fields.find((f) => f.master_key === key);
+  if (ex) { ex.enabled = true; return ex; }
+  const m = d.master.find((x) => x.key === key); if (!m) return null;
+  const f = { field_id: `tmp_${++d.seq}`, _new: true, master_key: key, field_name: m.label, field_type: m.field_type, options: structuredClone(m.options ?? []), purpose_text: m.purpose_text ?? '', sensitivity: m.sensitivity,
+    consent_target: m.consent_target || null, required: m.consent_target ? false : required, enabled: true, placeholder: '', user_editable: true, visibility: 'USER', allow_other: false };
+  d.fields.push(f); return f;
+}
+function draftApplyTemplate(d, name) { // サーバーの applyTemplate と同じ規則
+  const tpl = d.templates[name]; if (!tpl) return;
+  for (const { key, required } of tpl.fields) {
+    if (key === '__interest') {
+      if (!d.fields.some((f) => f.field_name === d.interest.field_name)) d.fields.push({ field_id: `tmp_${++d.seq}`, _new: true, master_key: null, field_name: d.interest.field_name, field_type: d.interest.field_type, options: d.interest.options.map((v, i) => ({ value: v, label: v, order: i + 1 })), purpose_text: '', sensitivity: 'PERSONAL', consent_target: null, required: false, enabled: true, placeholder: '', user_editable: true, visibility: 'USER', allow_other: false });
+    } else draftAddMaster(d, key, required);
+  }
+}
+
 async function formView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
-  const [{ fields }, { master }] = await Promise.all([api('/form'), api('/master')]);
-  ST.fields = fields; ST.master = master;
-  const canEdit = can('FORM_EDIT');
+  if (!(formDraft && formDraft.tenant === ST.tenant && formDirty())) await loadFormDraft(); // 未保存の変更があれば、下書きを保ったまま描き直す
+  const d = formDraft, canEdit = can('FORM_EDIT');
+  ST.fields = d.fields; ST.master = d.master;
+  const err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' });
+  const redraw = () => { ST.fields = d.fields; return formView(); };
+  const orig = new Map(d.orig.map((f) => [f.field_id, f]));
+  const changed = (f) => f._new || !sameAttrs(f, orig.get(f.field_id));
   const list = el('div');
   let dragId = null;
-  fields.forEach((f) => {
+  d.fields.forEach((f) => {
     const row = el('div', { className: `field ${f.enabled ? '' : 'off'}`, draggable: canEdit });
     row.addEventListener('dragstart', () => { dragId = f.field_id; });
     row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag'); });
     row.addEventListener('dragleave', () => row.classList.remove('drag'));
-    row.addEventListener('drop', run(null, async (e) => {
+    row.addEventListener('drop', (e) => {
       e.preventDefault(); row.classList.remove('drag');
       if (!dragId || dragId === f.field_id) return;
-      const ids = fields.map((x) => x.field_id).filter((i) => i !== dragId);
-      ids.splice(ids.indexOf(f.field_id), 0, dragId);
-      await api('/form/order', { method: 'PUT', body: { fieldIds: ids } }); render();
-    }));
+      const moved = d.fields.find((x) => x.field_id === dragId); d.fields = d.fields.filter((x) => x !== moved);
+      d.fields.splice(d.fields.indexOf(f), 0, moved); redraw();   // 下書きの並びだけを変える(保存するまで反映されない)
+    });
     const badges = el('div', {}, el('span', { className: 'badge' }, TYPES[f.field_type]), f.master_key ? el('span', { className: 'badge int' }, '標準') : el('span', { className: 'badge' }, 'カスタム'),
       f.visibility !== 'USER' ? el('span', { className: 'badge warn' }, VIS[f.visibility]) : null, !f.user_editable ? el('span', { className: 'badge' }, '店舗のみ変更可') : null,
-      f.sensitivity !== 'NORMAL' ? el('span', { className: 'badge' }, f.sensitivity) : null);
-    const req = el('input', { type: 'checkbox', checked: f.required, disabled: !canEdit || f.visibility !== 'USER' || !!f.consent_target, onchange: run(null, async () => { await api(`/form/fields/${f.field_id}`, { method: 'PATCH', body: { required: req.checked } }); render(); }) });
-    row.append(el('span', { className: 'handle', title: 'ドラッグで並び替え' }, '☰'), el('div', { className: 'name' }, el('b', {}, f.field_name), badges),
-      el('label', { className: 'hint' }, req, ' 必須'));
-    if (canEdit) row.append(btn(f.enabled ? '表示中' : '非表示', run(null, async () => { await api(`/form/fields/${f.field_id}/${f.enabled ? 'disable' : 'enable'}`, { method: 'POST' }); render(); }), 'sm'), btn('編集', () => fieldDialog(f), 'sm'));
+      f.sensitivity !== 'NORMAL' ? el('span', { className: 'badge' }, f.sensitivity) : null, changed(f) ? el('span', { className: 'badge warn' }, f._new ? '新規(未保存)' : '変更あり(未保存)') : null);
+    const req = el('input', { type: 'checkbox', checked: f.required, disabled: !canEdit || f.visibility !== 'USER' || !!f.consent_target, onchange: () => { f.required = req.checked; redraw(); } });
+    row.append(el('span', { className: 'handle', title: 'ドラッグで並び替え' }, '☰'), el('div', { className: 'name' }, el('b', {}, f.field_name), badges), el('label', { className: 'hint' }, req, ' 必須'));
+    if (canEdit) row.append(btn(f.enabled ? '表示中' : '非表示', () => { f.enabled = !f.enabled; redraw(); }, 'sm'), btn('編集', () => fieldDialog(f, d, redraw), 'sm'));
     list.append(row);
   });
-  const used = new Set(fields.filter((f) => f.enabled).map((f) => f.master_key));
-  const tplSel = el('select', { style: 'width:auto' }, [['basic', '基本'], ['standard', '標準顧客情報'], ['marketing', '店舗マーケティング'], ['detailed', '詳細']].map(([v, t]) => el('option', { value: v }, t)));
+  const used = new Set(d.fields.filter((f) => f.enabled).map((f) => f.master_key));
+  const tplSel = el('select', { style: 'width:auto' }, Object.entries(d.templates).map(([v, t]) => el('option', { value: v }, t.label)));
   const bar = canEdit ? el('div', { className: 'row', style: 'margin-bottom:12px' },
-    btn('＋ 標準項目を追加', () => masterDialog(master.filter((m) => !used.has(m.key))), 'pri'), btn('＋ カスタム項目を追加', () => fieldDialog(null)),
-    el('span', { className: 'sp', style: 'flex:1' }), tplSel, btn('テンプレート適用', run(null, async () => { if (confirm('テンプレートの項目を追加します(既存項目は変更されません)。')) { await api('/form/template', { method: 'POST', body: { name: tplSel.value } }); render(); } }))) : null;
+    btn('＋ 標準項目を追加', () => masterDialog(d.master.filter((m) => !used.has(m.key)), d, redraw), 'pri'), btn('＋ カスタム項目を追加', () => fieldDialog(null, d, redraw)),
+    el('span', { className: 'sp', style: 'flex:1' }), tplSel, btn('テンプレート適用', () => { if (confirm('テンプレートの項目を、下書きに追加します(既存項目は変更されません)。保存するまで反映されません。')) { draftApplyTemplate(d, tplSel.value); redraw(); } })) : null;
+
   // 配信への同意 (チェックボックス): 表示するとチェックを入れた会員にだけ配信される
   const CONSENTS = [['LINE', 'LINE配信', 'consent_line', 'お知らせ・クーポンをLINEで配信するための同意'], ['EMAIL', 'メール配信', 'consent_email', 'お知らせをメールで配信するための同意'], ['MARKETING', 'キャンペーン案内', 'consent_marketing', 'キャンペーン情報などの案内のための同意']];
   const consentCard = el('div', { className: 'card' }, el('h2', {}, '配信への同意(チェックボックス)'),
     el('div', { className: 'hint', style: 'margin-bottom:10px' }, '会員登録の画面に、同意のチェックボックスを出せます。チェックを入れた会員にだけ配信できます(メールアドレスや電話番号を登録しただけでは、同意したことになりません)。同意は必須にできません。既存の会員は、会員証の画面から、あとで同意できます。'),
     CONSENTS.map(([target, title, key, desc]) => {
-      const f = fields.find((x) => x.consent_target === target);
+      const f = d.fields.find((x) => x.consent_target === target);
       const on = !!(f && f.enabled);
       return el('div', { className: `field ${on ? '' : 'off'}` }, el('div', { className: 'name' }, el('b', {}, title), el('span', { className: 'hint' }, desc), f ? el('span', { className: 'hint' }, `表示文言: ${f.field_name}`) : null),
         el('span', { className: `badge ${on ? 'int' : ''}` }, on ? '表示中' : (f ? '非表示' : '未設定')),
-        canEdit ? [f ? btn('文言を編集', () => fieldDialog(f), 'sm') : null,
-          btn(on ? '非表示にする' : '表示する', run(null, async () => {
-            if (f) await api(`/form/fields/${f.field_id}/${on ? 'disable' : 'enable'}`, { method: 'POST' });
-            else await api('/form/fields', { method: 'POST', body: { masterKey: key } });
-            render();
-          }), on ? 'sm' : 'sm pri')] : null);
+        canEdit ? [f ? btn('文言を編集', () => fieldDialog(f, d, redraw), 'sm') : null,
+          btn(on ? '非表示にする' : '表示する', () => { if (f) f.enabled = !on; else draftAddMaster(d, key); redraw(); }, on ? 'sm' : 'sm pri')] : null);
     }));
-  layout(el('div', { className: 'grid' }, el('div', {}, consentCard, el('div', { className: 'card' }, el('h2', {}, '会員登録項目'), bar, list,
-    el('div', { className: 'hint' }, '変更は保存ボタン不要で即時反映されます(変更履歴はバージョン管理・監査ログに記録)。項目は削除ではなく「非表示」にし、過去の会員データは保持されます。'))),
-    el('div', { className: 'card' }, el('h2', {}, 'スマホプレビュー'), previewNode())));
+
+  // 保存 / 破棄 (画面の上部に固定)
+  const ops = buildOps(d), n = ops.length;
+  const save = run(err, async () => {
+    err.textContent = ''; ok.textContent = '';
+    const r = await api('/form', { method: 'PUT', body: { baseVersion: d.version, ops } });
+    d.version = r.version; d.orig = structuredClone(r.fields); d.fields = structuredClone(r.fields); d.seq = 0;
+    await redraw(); const o2 = el('div', { className: 'ok' }, `保存しました(会員の登録画面に反映されます / v${r.version})`); document.querySelector('main')?.prepend(o2); setTimeout(() => o2.remove(), 4000);
+  });
+  const discard = () => { if (confirm('未保存の変更を、すべて破棄します。よろしいですか?')) { discardFormDraft(); render(); } };
+  const bar2 = canEdit ? el('div', { className: 'card', style: 'position:sticky;top:0;z-index:5;border-color:' + (n ? '#e0a100' : 'var(--line)') },
+    el('div', { className: 'row' }, el('b', { style: n ? 'color:#8a6100' : '' }, n ? `未保存の変更があります(${n}件)` : '変更はありません'), el('span', { className: 'sp', style: 'flex:1' }),
+      btn('変更を破棄', discard, n ? 'dng' : ''), btn('保存', save, n ? 'pri' : '')), err,
+    el('div', { className: 'hint' }, '変更は「保存」を押すまで反映されません。プレビューは、保存前の内容を表示します。')) : null;
+  if (bar2) { const sv = bar2.querySelectorAll('button'); sv[0].disabled = !n; sv[1].disabled = !n; }
+
+  layout(el('div', { className: 'grid' }, el('div', {}, bar2, consentCard, el('div', { className: 'card' }, el('h2', {}, '会員登録項目'), bar, list,
+    el('div', { className: 'hint' }, '項目は削除ではなく「非表示」にし、過去の会員データは保持されます。保存すると、変更履歴(バージョン)と監査ログに記録されます。'))),
+    el('div', { className: 'card' }, el('h2', {}, 'スマホプレビュー(保存前の内容)'), previewNode())));
 }
 
-function masterDialog(list) {
+// 標準項目を、下書きに追加
+function masterDialog(list, d, redraw) {
   const sel = el('select', {}, list.map((m) => el('option', { value: m.key }, `${m.label} (${TYPES[m.field_type]})`)));
-  const err = el('div', { className: 'err' });
-  const d = el('dialog', {}, el('h2', {}, '標準項目を追加'), list.length ? lab('項目', sel) : el('div', {}, '追加できる標準項目はありません。'), err,
-    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('閉じる', () => d.close()),
-      list.length ? btn('追加', run(err, async () => { await api('/form/fields', { method: 'POST', body: { masterKey: sel.value } }); d.close(); render(); }), 'pri') : null));
-  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+  const dlg = el('dialog', {}, el('h2', {}, '標準項目を追加'), list.length ? lab('項目', sel) : el('div', {}, '追加できる標準項目はありません。'),
+    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('閉じる', () => dlg.close()),
+      list.length ? btn('追加', () => { draftAddMaster(d, sel.value); dlg.close(); redraw(); }, 'pri') : null));
+  document.body.append(dlg); dlg.addEventListener('close', () => dlg.remove()); dlg.showModal();
 }
 
-// 追加(f=null) / 編集(f) 共用
-function fieldDialog(f) {
+// 追加(f=null) / 編集(f) 共用。下書きにだけ反映する(サーバーの検証は、保存のときに行われる)
+function fieldDialog(f, d, redraw) {
   const isNew = !f, err = el('div', { className: 'err' });
   const name = el('input', { type: 'text', value: f?.field_name ?? '', maxLength: 50 });
   const type = el('select', { disabled: !isNew }, Object.entries(TYPES).map(([k, v]) => el('option', { value: k, selected: k === (f?.field_type ?? 'TEXT') }, v)));
@@ -203,19 +271,28 @@ function fieldDialog(f) {
     if (isConsent) required.checked = false; required.disabled = isConsent;
   };
   type.addEventListener('change', sync); consent.addEventListener('change', sync); sync();
-  const save = run(err, async () => {
-    const lines = opts.value.split('\n').map((x) => x.trim()).filter(Boolean);
-    const common = { field_name: name.value.trim(), placeholder: ph.value, purpose_text: purpose.value, required: required.checked, user_editable: editable.checked, visibility: vis.value, allow_other: other.checked && CHOICE.includes(type.value) };
-    if (isNew) await api('/form/fields', { method: 'POST', body: { field: { ...common, field_type: type.value, options: CHOICE.includes(type.value) ? lines : [], consent_target: type.value === 'CHECKBOX' && consent.value ? consent.value : null } } });
-    else await api(`/form/fields/${f.field_id}`, { method: 'PATCH', body: { ...common, ...(CHOICE.includes(f.field_type) ? { options: lines } : {}), ...(f.field_type === 'CHECKBOX' ? { consent_target: consent.value || null } : {}) } });
-    d.close(); render();
-  });
-  const d = el('dialog', {}, el('h2', {}, isNew ? 'カスタム項目を追加' : `項目を編集: ${f.field_name}`),
+  const apply = () => {
+    const lines = opts.value.split('\n').map((x) => x.trim()).filter(Boolean), t = f?.field_type ?? type.value, choice = CHOICE.includes(t);
+    if (!name.value.trim()) throw new Error('表示名を入力してください');
+    if (/<[^>]*>/.test(name.value + ph.value + purpose.value + opts.value)) throw new Error('HTMLは使用できません');
+    if (choice && !lines.length) throw new Error('選択式の項目には、選択肢が必要です');
+    if (new Set(lines).size !== lines.length) throw new Error('選択肢が重複しています');
+    const vals = { field_name: name.value.trim(), placeholder: ph.value, purpose_text: purpose.value, required: required.checked, user_editable: editable.checked, visibility: vis.value, allow_other: other.checked && choice };
+    if (t === 'CHECKBOX') vals.consent_target = consent.value || null;
+    // 選択肢: 並びは行の順。消した選択肢は「非表示」として残す(既存データを守る。サーバーも同じ扱い)
+    const optionObjs = lines.map((v, i) => ({ value: v, label: v, order: i + 1 }));
+    const hidden = (f?.options ?? []).filter((o) => !lines.includes(o.value)).map((o, i) => ({ ...o, hidden: true, order: lines.length + i + 1 }));
+    if (isNew) d.fields.push({ field_id: `tmp_${++d.seq}`, _new: true, master_key: null, field_type: t, sensitivity: 'PERSONAL', enabled: true, consent_target: null, ...vals, options: choice ? optionObjs : [] });
+    else { Object.assign(f, vals); if (choice) f.options = [...optionObjs, ...hidden]; }
+    dlg.close(); redraw();
+  };
+  const dlg = el('dialog', {}, el('h2', {}, isNew ? 'カスタム項目を追加' : `項目を編集: ${f.field_name}`),
     lab('表示名', name, f && f.master_key ? '内部ID(field_id)は変わりません。表示名のみ変更されます。' : null), lab('入力形式', type), choiceBox, consentBox,
     lab('プレースホルダー', ph), lab('利用目的(会員に表示)', purpose), lab('表示範囲', vis),
     el('label', { className: 'lb' }, required, ' 必須'), el('label', { className: 'lb' }, editable, ' ユーザー自身が変更できる'), err,
-    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
-  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => dlg.close()), btn(isNew ? '下書きに追加' : '下書きに反映', run(err, async () => apply()), 'pri'),
+    ), el('div', { className: 'hint', style: 'text-align:right' }, '「保存」ボタンを押すまで、会員には反映されません。'));
+  document.body.append(dlg); dlg.addEventListener('close', () => dlg.remove()); dlg.showModal();
 }
 
 // ---------- 会員証デザイン ----------
@@ -823,4 +900,5 @@ async function boot() {
   render();
 }
 window.addEventListener('hashchange', () => { if (!ST.me) render(); });
+window.addEventListener('beforeunload', (e) => { if (formDirty()) { e.preventDefault(); e.returnValue = ''; } }); // 未保存のまま閉じようとしたら確認
 (store.get() && !location.hash.startsWith('#reset=')) ? boot().catch(() => { store.set(null); render(); }) : render();

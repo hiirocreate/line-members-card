@@ -13,6 +13,7 @@ import { push, isFriend, friendAddUrl, botInfo } from './line.js';
 import { resolveLine, publicLine, setLine, testMessaging } from './settings.js';
 import { addMasterField, setBannedTerms, listMaster, getBannedTerms } from './master.js';
 import { listAudit } from './audit.js';
+import { TEMPLATES, INTEREST_FIELD } from './templates.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const JS = 'text/javascript; charset=utf-8';
@@ -212,7 +213,8 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
 
     // 登録フォーム設定
     if (path === '/master' && req.method === 'GET') return ok({ master: listMaster(app.store) });
-    if (path === '/form' && req.method === 'GET') return ok({ fields: f.fields(needTenant(), { includeDisabled: true }), versions: f.versions(tenant).map(({ version, created_by, created_at }) => ({ version, created_by, created_at })) });
+    if (path === '/form' && req.method === 'PUT') return ok(f.applyBatch(actor, needTenant(), body)); // 下書きの一括保存(全部成功 or 全部取り消し)
+    if (path === '/form' && req.method === 'GET') return ok({ version: f.version(needTenant()), templates: TEMPLATES, interest: INTEREST_FIELD, fields: f.fields(tenant, { includeDisabled: true }), versions: f.versions(tenant).map(({ version, created_by, created_at }) => ({ version, created_by, created_at })) });
     if (path === '/form/preview' && req.method === 'GET') {
       const t = app.store.find('tenants', (x) => x.tenant_id === needTenant());
       return send(res, 200, renderForm({ shopName: t.name, fields: f.fields(tenant) }), 'text/html; charset=utf-8', { 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'" });

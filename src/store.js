@@ -47,6 +47,11 @@ export class Store {
     if (n) this._changed(table);
     return n;
   }
+  // 指定テーブルの内容を退避し、fn が失敗したら元に戻す (一括保存を、全部成功か全部取り消しにするため)
+  transaction(tables, fn) {
+    const snap = Object.fromEntries(tables.map((t) => [t, structuredClone(this.t[t])]));
+    try { return fn(); } catch (e) { for (const t of tables) { this.t[t] = snap[t]; this._changed(t); } throw e; }
+  }
   remove(table, pred) { // 運営管理者の完全削除専用。通常運用では使わない
     const before = this.t[table].length;
     this.t[table] = this.t[table].filter((r) => !pred(r));

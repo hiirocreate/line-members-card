@@ -22,10 +22,10 @@ const JS = 'text/javascript; charset=utf-8';
 const STATIC = { '/app': ['app.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/formkit.js': ['formkit.js', JS],
   '/admin': ['admin.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', JS], '/admin.css': ['admin.css', 'text/css; charset=utf-8'],
   '/cardkit.js': ['cardkit.js', JS], '/vendor/qrcode.min.js': ['vendor/qrcode.min.js', JS], '/vendor/jsQR.js': ['vendor/jsQR.js', JS] };
-const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.net; style-src 'self' 'unsafe-inline'; " +
-  "connect-src 'self' https://*.line.me https://*.line-apps.com https://*.line-scdn.net; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'none'";
+  "connect-src 'self' https://*.line.me https://*.line-apps.com https://*.line-scdn.net; img-src 'self' data: blob: https:; frame-ancestors 'self'; base-uri 'none'";
 
 export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANNEL_ID, liffId = process.env.LIFF_ID,
   sessionSecret = process.env.SESSION_SECRET, publicOrigin = process.env.PUBLIC_ORIGIN, systemMessagingToken = process.env.LINE_SYSTEM_MESSAGING_TOKEN, verifyLine = verifyLineIdToken, cronSecret = process.env.CRON_SECRET, fetchImpl = app.fetchImpl ?? fetch } = {}) {

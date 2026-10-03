@@ -97,6 +97,7 @@ export class MemberService {
       const v = out.get(f.field_id);
       if (v !== null) this.#write(member, f, v); else if (existing) this.#write(member, f, null);
       this.#setConsent(member, f, v === true);
+      if (f.consent_target === 'MARKETING') this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === member.member_id, { notify_prefs: { ...this.prefsOf(this.#member(tenantId, member.member_id)), news: v === true } });
     }
     audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: existing ? 'MEMBER_REJOIN' : 'MEMBER_REGISTER', target: member.member_id, detail: { version: form.version } });
     return this.store.find('members', (m) => m.member_id === member.member_id && m.tenant_id === tenantId);
@@ -127,6 +128,8 @@ export class MemberService {
     const next = this.prefsOf(m);
     for (const k of MemberService.PREF_KEYS) if (input?.[k] !== undefined) { if (typeof input[k] !== 'boolean') throw new ValidationError('設定の値が不正です'); next[k] = input[k]; }
     this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === m.member_id, { notify_prefs: next });
+    const mk = input?.news !== undefined && this.forms.fields(tenantId).find((x) => x.consent_target === 'MARKETING'); // 登録フォームの「キャンペーン情報」と同じ状態にそろえる
+    if (mk) { this.#write(m, mk, next.news); this.#setConsent(m, mk, next.news); }
     audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: 'MEMBER_PREFS_CHANGE', target: m.member_id, detail: next });
     return next;
   }
@@ -238,9 +241,10 @@ export class MemberService {
     const m = this.#member(tenantId, memberId);
     const vals = this.#valuesOf(tenantId, memberId);
     const all = this.forms.fields(tenantId, { includeDisabled: !!actor }).filter((f) => canSeeField(actor, f));
-    const items = [];
+    const items = [], consentNow = { ...this.consents(tenantId, memberId), MARKETING: this.prefsOf(m).news }; // 「キャンペーン情報」は、会員画面の「お知らせ」の設定と同じもの
     for (const f of all) {
-      const raw = this.#read(m, f, vals);
+      let raw = this.#read(m, f, vals);
+      if (f.consent_target) raw = consentNow[f.consent_target] ?? false; // 同意の項目は、実際の受け取り設定を はい/いいえ で表示 (未登録にしない)
       if (!f.enabled && raw === null) continue; // 無効項目は値がある時だけ表示 (スタッフのみ)
       items.push({ field_id: f.field_id, label: f.field_name, enabled: f.enabled, registered: raw !== null,
         value: raw === null ? UNREGISTERED : displayValue(f, raw), raw });

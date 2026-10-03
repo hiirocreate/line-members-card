@@ -320,39 +320,33 @@ async function cardView() {
   await loadScript('/vendor/qrcode.min.js');
   const server = await api('/card');
   let design = structuredClone(server.design), dirty = false;
-  const images = {}; // assetId -> Image (管理画面のプレビュー用)
-  const getImage = async (id) => { if (!id) return null; if (!images[id]) { try { images[id] = await loadImage(URL.createObjectURL(await api(`/card/assets/${id}`, { blob: true }))); } catch { images[id] = null; } } return images[id]; };
+  const images = {}, urls = {}; // assetId -> Image / blob URL (プレビューの画像用)
+  const getImage = async (id) => { if (!id) return null; if (!images[id]) { try { urls[id] = URL.createObjectURL(await api(`/card/assets/${id}`, { blob: true })); images[id] = await loadImage(urls[id]); } catch { images[id] = null; } } return images[id]; };
   const sample = { shop: server.tenantName, name: '山田 太郎', nameParts: { family: '山田', given: '太郎' }, memberNumber: '000123', registeredAt: '2026-04-01T00:00:00Z', lastVisitAt: new Date().toISOString(), visitCount: 12 };
   const qr = makeQr('PREVIEW-SAMPLE', 190);
-  const canvas = el('canvas', { className: 'card-canvas', style: 'width:100%;height:auto;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.25))' });
-  // プレビューのカードをクリックすると、その部分の入力欄へ移動する (店舗名・タイトル)
-  canvas.style.cursor = 'pointer'; canvas.title = 'クリックして店舗名・タイトルを編集';
-  canvas.addEventListener('click', (e) => {
-    const y = (e.offsetY / canvas.clientHeight) * CARD_H;
-    const key = y >= 230 && y <= 345 ? 'shop' : y < 130 ? 'title' : null;
-    const input = key && controls.querySelector(`[data-key="${key}"]`);
-    if (!input) return;
-    if (key === 'shop' && !design.shopName.show) { design.shopName.show = true; touch(); drawControls(); }
-    const target = controls.querySelector(`[data-key="${key}"]`); target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.focus(); target.select();
-  });
-  const phone = el('div', { className: 'phone' });
+  const canvas = document.createElement('canvas'); // 「カード画像をダウンロード」用 (画面には出さない)
+  // プレビューは、会員が実際に見る画面(/app?preview=1)をそのまま埋め込む。同じコードで描くので、見た目が必ず一致する
+  const frame = el('iframe', { src: '/app?preview=1', title: '会員画面のプレビュー', style: 'width:390px;height:780px;border:0;background:transparent;transform:scale(.76);transform-origin:top left' }); // 実機(約390px幅)の表示を縮小して見せる
+  const phone = el('div', { className: 'phone', style: 'padding:0;overflow:hidden;max-height:none;height:593px' }, frame);
   const err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' }), state = el('span', { className: 'hint' }, '');
-
+  let frameReady = false;
+  window.addEventListener('message', (e) => { if (e.origin === location.origin && e.source === frame.contentWindow && e.data?.type === 'preview-ready') { frameReady = true; redraw(); } });
+  const rankCfg = featOn('rank') && can('CARD_DESIGN') ? await api('/ranks') : null;
+  const sampleRank = () => { // 設定中のランクのうち、来店12回のときのもの (会員画面と同じ計算)
+    if (!rankCfg?.enabled) return null;
+    let idx = 0; rankCfg.ranks.forEach((r, i) => { if (12 >= r.min_visits) idx = i; });
+    const r = rankCfg.ranks[idx], nx = rankCfg.ranks[idx + 1];
+    return { title: r.title, stars: idx + 1, starColor: r.star_color, color1: r.card_color1 || '', color2: r.card_color2 || '', next: nx ? { title: nx.title, remaining: nx.min_visits - 12 } : null };
+  };
   const redraw = async () => {
     const [logo, bg] = await Promise.all([getImage(design.logo.imageId), getImage(design.background.imageId)]);
-    drawCard(canvas, design, sample, { logo, bg, qr: design.qr === 'inside' ? qr : null });
-    // 会員画面の見た目 (背景色・ボタン色・メッセージ)
-    const pg = design.page, text = contrast(pg.backgroundColor);
-    Object.assign(phone.style, { background: pg.backgroundColor, color: text });
-    const btnStyle = `width:100%;padding:10px;margin-top:8px;border:0;border-radius:8px;background:${pg.accentColor};color:${contrast(pg.accentColor)}`;
-    const qrBlock = design.qr === 'below' ? el('div', { style: 'background:#fff;padding:10px;border-radius:10px;margin:10px auto;width:140px;height:140px;display:flex;align-items:center;justify-content:center;color:#666;font-size:12px' }, 'QRコード') : null;
-    phone.replaceChildren(...[el('div', { style: 'font-weight:700;margin-bottom:6px' }, design.shopName.text || server.tenantName), canvas,
-      el('div', { style: 'text-align:center;font-weight:700;font-size:12px;margin:8px 0' }, '最終来店: 2026/10/03 12:00(来店 12回)'), qrBlock,
-      pg.welcomeText ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px;white-space:pre-wrap;text-align:center` }, pg.welcomeText) : null,
-      el('button', { type: 'button', style: 'width:100%;padding:10px;margin-top:8px;border:0;border-radius:8px;background:#888;color:#fff' }, 'カード画像を保存'),
-      pg.showShopcard ? el('button', { type: 'button', style: btnStyle }, '公式LINEのショップカードを開く') : null,
-      pg.showNotice ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px` }, el('b', {}, 'LINEでのお知らせ'), el('div', {}, '現在: 受け取る(オン)')) : null,
-      pg.showInfoList ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px` }, el('b', {}, '氏名'), el('div', {}, '山田 太郎'), el('b', {}, '電話番号'), el('div', {}, '090XXXXXXXX')) : null].filter(Boolean)); // replaceChildren は null を文字列にしてしまうため除外
+    const rank = sampleRank();
+    drawCard(canvas, design, { ...sample, rank }, { logo, bg, qr: design.qr === 'inside' ? qr : null });
+    if (!frameReady || !frame.contentWindow) return;
+    const me = { registered: true, shop: server.tenantName, member_number: '000123', last_visit_at: new Date().toISOString(), visit_count: 12, registered_at: sample.registeredAt,
+      items: [{ field_id: 'a', label: '氏名', value: '山田 太郎' }, { field_id: 'b', label: '電話番号', value: '090XXXXXXXX' }], consents: { LINE: true }, prefs: { news: true, coupon: true, birthday: true },
+      rank, card: design, card_data: { name: '山田 太郎', parts: sample.nameParts, registered_at: sample.registeredAt }, shopcardUrl: 'https://line.me/', notice: null, sampleCoupon: featOn('coupons') };
+    frame.contentWindow.postMessage({ type: 'preview', me, assetUrls: urls }, location.origin);
   };
   const touch = (custom = true) => { if (custom) design.template = 'custom'; dirty = true; state.textContent = '未保存の変更があります'; ok.textContent = ''; redraw(); };
 
@@ -398,7 +392,7 @@ async function cardView() {
         lab('位置', bindSelect([['top-left', '左上'], ['top-center', '中央'], ['top-right', '右上']], () => design.logo.position, (v) => { design.logo.position = v; })),
         lab('大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => design.logo.size, (v) => { design.logo.size = v; }))),
       sec('文言', bindCheck('店舗名を表示する', () => design.shopName.show, (v) => { design.shopName.show = v; }),
-        lab('カードに表示する店舗名', bindText(() => design.shopName.text, (v) => { design.shopName.text = v; }, server.tenantName, 30, 'shop'), `カードと、会員画面の見出しに表示されます。空欄のときは、登録されている店舗名「${server.tenantName}」を使います。プレビューのカードの店舗名をクリックしても編集できます。`),
+        lab('カードに表示する店舗名', bindText(() => design.shopName.text, (v) => { design.shopName.text = v; }, server.tenantName, 30, 'shop'), `カードと、会員画面の見出しに表示されます。空欄のときは、登録されている店舗名「${server.tenantName}」を使います。`),
         lab('店舗名の大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => design.shopName.size, (v) => { design.shopName.size = v; })),
         lab('店舗名の位置', bindSelect([['left', '左'], ['center', '中央']], () => design.shopName.align, (v) => { design.shopName.align = v; })),
         lab('カードのタイトル', bindText(() => design.title, (v) => { design.title = v; }, 'MEMBER CARD', 24, 'title'))),
@@ -406,10 +400,10 @@ async function cardView() {
         lab('氏名の並び順', bindSelect([['asis', '登録されたとおり(例: 山田 太郎)'], ['swap', '姓と名を入れ替える(例: 太郎 山田)']], () => design.fields.nameOrder ?? 'asis', (v) => { design.fields.nameOrder = v; }), '姓と名が別の項目(マスタの「姓」「名」)のときは、その2項目を並べ替えて表示します。1つの氏名項目のときは、姓と名の間に空白があるときだけ入れ替わります。'), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
         bindCheck('最終来店日', () => design.fields.lastVisit, (v) => { design.fields.lastVisit = v; }), bindCheck('来店回数', () => design.fields.visitCount, (v) => { design.fields.visitCount = v; }),
         lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)']], () => design.qr, (v) => { design.qr = v; }), 'カードの中に入れると、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。')),
-      sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; })), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),
+      sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; }), '丸いボタンの枠・アイコンと、主なボタンの色です。'), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),
         lab('メッセージ(カードの下に表示)', bindText(() => design.page.welcomeText, (v) => { design.page.welcomeText = v; }, '例: ご来店ありがとうございます', 120)),
-        bindCheck('登録情報の一覧を表示する', () => design.page.showInfoList, (v) => { design.page.showInfoList = v; }), bindCheck('公式LINEのショップカードのボタンを表示する(URLを設定した場合)', () => design.page.showShopcard, (v) => { design.page.showShopcard = v; }),
-        bindCheck('「LINEでのお知らせ」のオン/オフを表示する', () => design.page.showNotice, (v) => { design.page.showNotice = v; })),
+        bindCheck('「登録情報」(折りたたみの一覧)を表示する', () => design.page.showInfoList, (v) => { design.page.showInfoList = v; }), bindCheck('公式LINEのショップカードのボタンを表示する(URLを設定した場合)', () => design.page.showShopcard, (v) => { design.page.showShopcard = v; }),
+        bindCheck('「お知らせ」ボタン(LINEのお知らせの受け取り設定)を表示する', () => design.page.showNotice, (v) => { design.page.showNotice = v; })),
     );
   }
 
@@ -426,7 +420,7 @@ async function cardView() {
   layout(el('div', { className: 'grid' },
     el('div', { className: 'card' }, el('h2', {}, '会員証デザイン'), el('div', { className: 'hint', style: 'margin-bottom:12px' }, '右のプレビューを見ながら調整し、「保存」を押すと、会員のスマホの会員証に反映されます。'), controls, err, ok,
       el('div', { className: 'row', style: 'margin-top:8px' }, btn('保存', save, 'pri'), btn('カード画像をダウンロード', download), btn('初期状態に戻す', reset, 'dng'), state)),
-    el('div', { className: 'card', style: 'position:sticky;top:12px;align-self:start' }, el('h2', {}, 'プレビュー(会員のスマホ画面)'), phone)));
+    el('div', { className: 'card', style: 'position:sticky;top:12px;align-self:start' }, el('h2', {}, 'プレビュー(会員のスマホ画面と同じ表示)'), phone, el('div', { className: 'hint', style: 'margin-top:6px' }, 'サンプルのデータ(来店12回・クーポンあり)です。ショップカードのボタンは、店舗のURLを設定している場合に表示されます。'))));
 }
 
 // ---------- 会員 ----------

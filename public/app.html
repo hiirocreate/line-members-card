@@ -19,8 +19,9 @@ dl{margin:0}dt{font-weight:bold;margin-top:8px}dd{margin:0}
 h1.shop{font-size:15px;margin:2px 0 4px;text-align:center}
 main.compact{padding:8px 12px}.card.mini{padding:10px 12px;margin:8px 0;font-size:14px}
 .bar{display:flex;gap:6px;margin:6px 0}
-.chip{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;width:auto;margin:0;padding:7px 4px;font-size:12px;font-weight:600;line-height:1;border-radius:999px;background:var(--card-bg,#fff);color:var(--page-text,#222);border:1px solid rgba(128,128,128,.35);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.chip{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;width:auto;margin:0;padding:7px 4px;font-size:12px;font-weight:600;line-height:1;white-space:nowrap;border-radius:999px;background:var(--card-bg,#fff);color:var(--page-text,#222);border:1px solid rgba(128,128,128,.35);box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .chip svg{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chip{border-color:var(--accent,rgba(128,128,128,.35))}.chip svg{stroke:var(--accent,currentColor)}.chip.on svg,.chip.cta svg{stroke:currentColor}
 .chip.on{background:var(--accent,#06c755);color:var(--accent-text,#fff);border-color:transparent}
 .chip.cta{background:var(--accent,#06c755);color:var(--accent-text,#fff);border-color:transparent;margin:6px 0}
 .mini-t{font-size:12px;opacity:.75;text-align:center;margin:4px 0}

@@ -65,3 +65,18 @@ test('姓・名の項目名の判定: 「姓(漢字)」は対象、読み仮名�
   app.members.register(T, 'U1', { [a]: '山田', [b]: '太郎', [c]: 'ヤマダ', [d]: 'タロウ' }, { confirmed: true });
   assert.deepEqual(app.members.cardNameParts(T, app.members.findByUser(T, 'U1')), { family: '山田', given: '太郎' });
 });
+
+test('「キャンペーン情報」の同意は、お知らせ設定(news)と同じ状態: 未登録にならず、どちらを変えても揃う', () => {
+  const app = createApp(null, { secret: 'c'.repeat(40) });
+  app.forms.createTenant(OP, T, 'テスト店'); app.forms.applyTemplate(ADMIN_A, T, 'basic');
+  const [n, p] = app.forms.fields(T).map((f) => f.field_id);
+  const line = app.forms.addFromMaster(ADMIN_A, T, 'consent_line').field_id, mk = app.forms.addFromMaster(ADMIN_A, T, 'consent_marketing').field_id;
+  const row = (u) => { const m = app.members.findByUser(T, u); return Object.fromEntries(app.members.profile(null, T, m.member_id).items.map((i) => [i.label, i.value])); };
+  app.members.register(T, 'U1', { [n]: 'a', [p]: '09011112222', [line]: true }, { confirmed: true }); // キャンペーンは未チェック
+  assert.equal(app.members.prefsOf(app.members.findByUser(T, 'U1')).news, false);
+  assert.deepEqual([row('U1')['LINEでお知らせやクーポンを受け取る'], row('U1')['キャンペーン情報などの案内を受け取る']], ['はい', 'いいえ']);
+  app.members.setPrefsByUser(T, 'U1', { news: true }); // 会員画面の「お知らせ」で変えると、登録情報の欄も同じになる
+  assert.equal(row('U1')['キャンペーン情報などの案内を受け取る'], 'はい'); assert.equal(app.members.consents(T, app.members.findByUser(T, 'U1').member_id).MARKETING, true);
+  app.members.register(T, 'U2', { [n]: 'b', [p]: '09011112222', [line]: true, [mk]: true }, { confirmed: true });
+  assert.equal(app.members.prefsOf(app.members.findByUser(T, 'U2')).news, true); assert.equal(row('U2')['キャンペーン情報などの案内を受け取る'], 'はい');
+});

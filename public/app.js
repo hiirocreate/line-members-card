@@ -30,7 +30,18 @@ function idToken() {
   return liff.getIDToken();
 }
 
+// 管理画面の「会員証デザイン」のプレビュー用 (?preview=1): 実際の会員画面と同じ描画コードを、サンプルのデータで動かす。通信はしない
+const PREVIEW = new URLSearchParams(location.search).has('preview');
+let previewMe = null, previewUrls = {};
+const previewApi = async (path) => {
+  if (path === 'me') return previewMe;
+  if (path === 'qr') return { code: 'PREVIEW-SAMPLE', expiresAt: Date.now() + 3_600_000 };
+  if (path === 'coupons') return { coupons: previewMe.sampleCoupon ? [{ state: 'available', coupon: { coupon_id: 'sample', title: '誕生日クーポン', benefit: '10%OFF', valid_until: '' } }] : [] };
+  if (path === 'consent' || path === 'prefs') return { ok: true };
+  throw new Error('プレビューでは使えません');
+};
 const api = async (path, { method = 'GET', body } = {}) => {
+  if (PREVIEW) return previewApi(path);
   const tok = idToken();
   if (!tok) return new Promise(() => {}); // 再ログインへ遷移中
   const r = await fetch(`/t/${T}/${path}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` }, body: body && JSON.stringify(body) });
@@ -58,7 +69,7 @@ const fmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'nu
 const fmtDate = (iso) => (iso && !Number.isNaN(Date.parse(iso)) ? fmt.format(new Date(iso)) : null);
 const visitText = (me) => (me.last_visit_at ? `最終来店: ${fmtDate(me.last_visit_at)}(来店 ${me.visit_count}回)` : '最終来店: まだ来店記録がありません');
 const cardData = (me) => ({ shop: me.shop, name: me.card_data?.name ?? '', nameParts: me.card_data?.parts ?? null, rank: me.rank ?? null, memberNumber: me.member_number, registeredAt: me.card_data?.registered_at ?? me.registered_at, lastVisitAt: me.last_visit_at, visitCount: me.visit_count });
-const assetImage = (id) => (id ? loadImage(`/t/${T}/asset/${id}`).catch(() => null) : Promise.resolve(null)); // 画像が読めなくてもカードは表示する
+const assetImage = (id) => (id ? loadImage(PREVIEW ? (previewUrls[id] ?? '') : `/t/${T}/asset/${id}`).catch(() => null) : Promise.resolve(null)); // 画像が読めなくてもカードは表示する
 
 // 会員証QR: 署名付き・5分有効。期限の1分前に自動更新 (スクリーンショットの使い回し防止)
 function showCard(me, opts = {}) {
@@ -116,7 +127,7 @@ function showCard(me, opts = {}) {
   if (!window.QRCode) root.append(el('div', { className: 'err' }, 'QRコードを表示できません'));
   applyPrivacy();
   // 店舗で来店が記録されたら、開いたままでも更新される (表示中のみ20秒ごと / アプリに戻ったとき)
-  meTimer = setInterval(() => { if (!document.hidden) refreshMe(); }, 20_000);
+  if (!PREVIEW) meTimer = setInterval(() => { if (!document.hidden) refreshMe(); }, 20_000);
   document.onvisibilitychange = () => { if (!document.hidden) { refreshMe(); if (window.QRCode && !privacy) refreshQr(); } };
 
   if (me.shopcardUrl && design.page.showShopcard) root.append(el('button', { className: 'chip cta', onclick: () => openLine(me.shopcardUrl) }, ICON.card(), '公式LINEのショップカードを開く'));
@@ -298,7 +309,15 @@ async function linkMode(link) {
     el('p', { className: 'hint' }, j.notified ? 'LINEに確認のメッセージを送りました。' : '確認のメッセージを送れませんでした。公式アカウントを友だち追加しているか、ブロックしていないか確認してください(連携自体は完了しています)。')));
 }
 
-(async () => {
+if (PREVIEW) { // 親(管理画面)から { me, assetUrls } を受け取るたびに描き直す。同じオリジンからのメッセージだけ受け付ける
+  form = { fields: [] }; shop = '';
+  window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin || e.source !== parent || e.data?.type !== 'preview') return;
+    previewMe = e.data.me; previewUrls = e.data.assetUrls ?? {}; shop = previewMe.shop;
+    const y = window.scrollY; showCard(previewMe); window.scrollTo(0, y);
+  });
+  parent.postMessage({ type: 'preview-ready' }, location.origin);
+} else (async () => {
   try {
     const link = findParam('link');
     if (link) return await linkMode(link);

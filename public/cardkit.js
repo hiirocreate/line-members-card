@@ -42,6 +42,8 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
+// 会員番号を伏せる (下3桁だけ表示)
+const maskNumber = (n) => { const t = String(n ?? ''); return `${'•'.repeat(Math.max(0, t.length - 3))}${t.slice(-3)}`; };
 // 幅に収まるよう末尾を「…」で省略
 function fit(ctx, text, maxW) {
   if (ctx.measureText(text).width <= maxW) return text;
@@ -76,7 +78,8 @@ function drawBackground(ctx, bg, images) {
 
 // data: { shop, name, memberNumber, registeredAt, lastVisitAt, visitCount }
 // images: { logo, bg } (読み込み済みの Image)。qr: canvas (qr==='inside' のときのみ描画)
-export function drawCard(canvas, design, data, { logo = null, bg = null, qr = null } = {}) {
+// privacy: true のとき、氏名・来店情報を出さず、会員番号を伏せ、QRの代わりに「非表示」の枠を描く (人に画面を見られるとき用)
+export function drawCard(canvas, design, data, { logo = null, bg = null, qr = null, privacy = false } = {}) {
   canvas.width = CARD_W; canvas.height = CARD_H;
   const ctx = canvas.getContext('2d'), font = FONTS[design.font] ?? FONTS.sans, tc = design.textColor, accent = design.accentColor;
   ctx.clearRect(0, 0, CARD_W, CARD_H);
@@ -99,7 +102,7 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
   }
 
   // ---- 中段: 店舗名 + アクセント線 ----
-  const insideQr = design.qr === 'inside' && qr;
+  const insideQr = design.qr === 'inside' && (qr || privacy);
   const textMaxW = insideQr ? CARD_W - P * 2 - 240 : CARD_W - P * 2;
   if (design.shopName.show) {
     const size = SIZES.shop[design.shopName.size], text = design.shopName.text || data.shop || '';
@@ -111,9 +114,9 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
 
   // ---- 下段: 会員番号 / 氏名 / 補足 (下から積む) ----
   const extras = [];
-  if (design.fields.registeredAt && data.registeredAt) extras.push(`登録 ${fmtDay(data.registeredAt) ?? ''}`);
-  if (design.fields.lastVisit) extras.push(data.lastVisitAt ? `最終来店 ${fmtDay(data.lastVisitAt) ?? ''}` : '最終来店 -');
-  if (design.fields.visitCount) extras.push(`来店 ${data.visitCount ?? 0}回`);
+  if (!privacy && design.fields.registeredAt && data.registeredAt) extras.push(`登録 ${fmtDay(data.registeredAt) ?? ''}`);
+  if (!privacy && design.fields.lastVisit) extras.push(data.lastVisitAt ? `最終来店 ${fmtDay(data.lastVisitAt) ?? ''}` : '最終来店 -');
+  if (!privacy && design.fields.visitCount) extras.push(`来店 ${data.visitCount ?? 0}回`);
   ctx.font = `500 30px ${font}`; ctx.fillStyle = tc;
   const lines = []; let cur = '';
   for (const e of extras) { const t = cur ? `${cur}   ${e}` : e; if (cur && ctx.measureText(t).width > textMaxW) { lines.push(cur); cur = e; } else cur = t; }
@@ -122,15 +125,16 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
   ctx.globalAlpha = 0.9;
   for (let i = lines.length - 1; i >= 0; i--) { ctx.fillText(fit(ctx, lines[i], textMaxW), P, y); y -= 44; }
   ctx.globalAlpha = 1;
-  if (design.fields.name && data.name) { ctx.font = `600 44px ${font}`; ctx.fillText(fit(ctx, data.name, textMaxW), P, y); y -= 70; }
-  ctx.font = `700 84px ${font}`; ctx.fillStyle = tc; spaced(ctx, String(data.memberNumber ?? ''), P, y, 8);
+  if (!privacy && design.fields.name && data.name) { ctx.font = `600 44px ${font}`; ctx.fillText(fit(ctx, data.name, textMaxW), P, y); y -= 70; }
+  ctx.font = `700 84px ${font}`; ctx.fillStyle = tc; spaced(ctx, privacy ? maskNumber(data.memberNumber) : String(data.memberNumber ?? ''), P, y, 8);
   ctx.font = `500 24px ${font}`; ctx.globalAlpha = 0.8; spaced(ctx, 'MEMBER No.', P, y - 84 - 14, 3); ctx.globalAlpha = 1;
 
   // ---- QR (カード内) ----
   if (insideQr) {
     const s = 190, pad = 14, x = CARD_W - P - s - pad * 2, yy = CARD_H - P - s - pad * 2;
     ctx.fillStyle = '#ffffff'; roundRect(ctx, x, yy, s + pad * 2, s + pad * 2, 16); ctx.fill();
-    ctx.drawImage(qr, x + pad, yy + pad, s, s);
+    if (qr && !privacy) ctx.drawImage(qr, x + pad, yy + pad, s, s);
+    else { ctx.fillStyle = '#888888'; ctx.font = `600 26px ${font}`; ctx.textAlign = 'center'; ctx.fillText('QRコード', x + pad + s / 2, yy + pad + s / 2 - 6); ctx.fillText('非表示中', x + pad + s / 2, yy + pad + s / 2 + 30); ctx.textAlign = 'left'; }
   }
   ctx.restore();
 }

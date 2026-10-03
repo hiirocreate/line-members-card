@@ -20,7 +20,7 @@ export const DEFAULT_DESIGN = {
   logo: { imageId: null, position: 'top-left', size: 'M' },
   fields: { name: true, registeredAt: false, lastVisit: true, visitCount: true },
   qr: 'below', radius: 'large', font: 'sans',
-  page: { accentColor: '#06c755', backgroundColor: '#f4f5f7', welcomeText: '', showInfoList: true, showShopcard: true },
+  page: { accentColor: '#06c755', backgroundColor: '#f4f5f7', welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true },
 };
 
 const ENUM = {
@@ -57,7 +57,7 @@ export function normalizeDesign(input, { hasAsset = () => false } = {}) {
     fields: { name: bool(f.name, D.fields.name), registeredAt: bool(f.registeredAt, D.fields.registeredAt), lastVisit: bool(f.lastVisit, D.fields.lastVisit), visitCount: bool(f.visitCount, D.fields.visitCount) },
     qr: pick(d.qr, ENUM.qr, D.qr, 'QRコードの位置'), radius: pick(d.radius, ENUM.radius, D.radius, '角の丸み'), font: pick(d.font, ENUM.font, D.font, '書体'),
     page: { accentColor: color(pg.accentColor, D.page.accentColor, 'ボタンの色'), backgroundColor: color(pg.backgroundColor, D.page.backgroundColor, '画面の背景色'),
-      welcomeText: text(pg.welcomeText, D.page.welcomeText, 120, 'メッセージ'), showInfoList: bool(pg.showInfoList, D.page.showInfoList), showShopcard: bool(pg.showShopcard, D.page.showShopcard) },
+      welcomeText: text(pg.welcomeText, D.page.welcomeText, 120, 'メッセージ'), showInfoList: bool(pg.showInfoList, D.page.showInfoList), showShopcard: bool(pg.showShopcard, D.page.showShopcard), showNotice: bool(pg.showNotice, D.page.showNotice) },
   };
   if (out.background.type === 'image' && !out.background.imageId) errors.push('背景に画像を使う場合は、画像をアップロードしてください');
   if (errors.length) throw new ValidationError('会員証デザインに誤りがあります', errors);

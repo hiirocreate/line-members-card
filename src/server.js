@@ -72,7 +72,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     }
     if (req.method === 'GET' && rest === 'form') return send(res, 200, { shop, version: form.version, fields: form.fields.map(strip) });
     if (req.method === 'POST' && rest === 'confirm') return send(res, 200, app.members.confirmRegistration(tenantId, (await readBody(req)).values ?? {}));
-    if (['register', 'me', 'qr', 'withdraw'].includes(rest)) {
+    if (['register', 'me', 'qr', 'withdraw', 'consent'].includes(rest)) {
       const userId = await verifyLine(bearer(req), line.loginChannelId, fetchImpl); // 必ずLINEのIDトークンから userId を得る(店舗ごとのチャネルで検証)
       if (req.method === 'POST' && rest === 'register') {
         const body = await readBody(req);
@@ -90,6 +90,11 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
           card: app.card.get(tenantId).design, card_data: { name: member.name || '', member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
+      if (req.method === 'POST' && rest === 'consent') {
+        const b = await readBody(req);
+        app.members.setConsentByUser(tenantId, userId, b.channel, b.granted);
+        return send(res, 200, { ok: true });
+      }
       if (req.method === 'POST' && rest === 'withdraw') {
         app.members.withdrawByUser(tenantId, userId, (await readBody(req)).reason);
         return send(res, 200, { ok: true });

@@ -273,6 +273,7 @@ async function cardView() {
       pg.welcomeText ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px;white-space:pre-wrap;text-align:center` }, pg.welcomeText) : null,
       el('button', { type: 'button', style: 'width:100%;padding:10px;margin-top:8px;border:0;border-radius:8px;background:#888;color:#fff' }, 'カード画像を保存'),
       pg.showShopcard ? el('button', { type: 'button', style: btnStyle }, '公式LINEのショップカードを開く') : null,
+      pg.showNotice ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px` }, el('b', {}, 'LINEでのお知らせ'), el('div', {}, '現在: 受け取る(オン)')) : null,
       pg.showInfoList ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px` }, el('b', {}, '氏名'), el('div', {}, '山田 太郎'), el('b', {}, '電話番号'), el('div', {}, '090XXXXXXXX')) : null].filter(Boolean)); // replaceChildren は null を文字列にしてしまうため除外
   };
   const touch = (custom = true) => { if (custom) design.template = 'custom'; dirty = true; state.textContent = '未保存の変更があります'; ok.textContent = ''; redraw(); };
@@ -328,7 +329,8 @@ async function cardView() {
         lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)']], () => design.qr, (v) => { design.qr = v; }), 'カードの中に入れると、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。')),
       sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; })), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),
         lab('メッセージ(カードの下に表示)', bindText(() => design.page.welcomeText, (v) => { design.page.welcomeText = v; }, '例: ご来店ありがとうございます', 120)),
-        bindCheck('登録情報の一覧を表示する', () => design.page.showInfoList, (v) => { design.page.showInfoList = v; }), bindCheck('公式LINEのショップカードのボタンを表示する(URLを設定した場合)', () => design.page.showShopcard, (v) => { design.page.showShopcard = v; })),
+        bindCheck('登録情報の一覧を表示する', () => design.page.showInfoList, (v) => { design.page.showInfoList = v; }), bindCheck('公式LINEのショップカードのボタンを表示する(URLを設定した場合)', () => design.page.showShopcard, (v) => { design.page.showShopcard = v; }),
+        bindCheck('「LINEでのお知らせ」のオン/オフを表示する', () => design.page.showNotice, (v) => { design.page.showNotice = v; })),
     );
   }
 
@@ -338,7 +340,7 @@ async function cardView() {
     design = r.design; dirty = false; state.textContent = ''; ok.textContent = `保存しました(会員の画面に反映されます / v${r.version})`; drawControls(); redraw();
   });
   const reset = () => { if (!confirm('デザインを初期状態に戻します(保存するまで反映されません)。')) return; design = { ...structuredClone(PRESETS.classic.design), template: 'classic', background: { ...PRESETS.classic.design.background, imageId: null }, logo: { imageId: null, position: 'top-left', size: 'M' },
-      shopName: { show: true, text: '', size: 'M', align: 'left' }, title: 'MEMBER CARD', fields: { name: true, registeredAt: false, lastVisit: true, visitCount: true }, qr: 'below', page: { ...PRESETS.classic.design.page, welcomeText: '', showInfoList: true, showShopcard: true } }; touch(false); drawControls(); };
+      shopName: { show: true, text: '', size: 'M', align: 'left' }, title: 'MEMBER CARD', fields: { name: true, registeredAt: false, lastVisit: true, visitCount: true }, qr: 'below', page: { ...PRESETS.classic.design.page, welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true } }; touch(false); drawControls(); };
   const download = () => canvas.toBlob((b) => { const a = el('a', { href: URL.createObjectURL(b), download: 'member-card.png' }); document.body.append(a); a.click(); a.remove(); }, 'image/png');
 
   drawControls(); await redraw();

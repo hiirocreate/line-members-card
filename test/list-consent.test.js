@@ -89,3 +89,37 @@ test('会員一覧API: ページ送り・上限・表示項目(columns)・並び
     void tokenA;
   } finally { srv.closeAllConnections(); srv.close(); }
 });
+
+test('会員証からのお知らせ設定: 登録フォームに同意項目が無くても、会員本人がオン/オフでき、配信対象に反映される', async () => {
+  const { app, tokenA } = setup();
+  app.forms.applyTemplate(ADMIN_A, T, 'basic'); // 同意のチェックボックスは無い
+  createAdmin(app.store, OP, { role: 'STORE_ADMIN', tenantId: T, email: 'a@x.jp', password: PW });
+  const verifyLine = async (t) => { if (!t?.startsWith('line:')) throw new AuthError('x'); return t.slice(5); };
+  const srv = createServer(app, { sessionSecret: SECRET, verifyLine, liffId: '1-abcde', lineChannelId: '1' }).listen(0);
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const call = async (path, { method = 'GET', body, token } = {}) => { const r = await fetch(base + path, { method, headers: token ? { authorization: `Bearer ${token}` } : {}, body: body && JSON.stringify(body) }); return { status: r.status, json: await r.json() }; };
+  try {
+    const [n, p] = (await call(`/t/${tokenA}/form`)).json.fields.map((f) => f.field_id);
+    await call(`/t/${tokenA}/register`, { method: 'POST', token: 'line:U1', body: { confirmed: true, values: { [n]: '山田', [p]: '09011112222' } } });
+    const me = () => call(`/t/${tokenA}/me`, { token: 'line:U1' });
+    assert.equal((await me()).json.consents.LINE, false);
+    assert.equal((await me()).json.card.page.showNotice, true); // 既定で、会員証に設定欄を表示する
+    const set = (granted, channel = 'LINE') => call(`/t/${tokenA}/consent`, { method: 'POST', token: 'line:U1', body: { channel, granted } });
+    assert.equal((await call(`/t/${tokenA}/consent`, { method: 'POST', body: { channel: 'LINE', granted: true } })).status, 401); // LINE認証が必要
+    assert.equal((await set(true, 'EMAIL')).status, 400);                  // LINE以外は、ここでは変更できない
+    assert.equal((await set('yes')).status, 400);                          // 真偽値のみ
+    assert.equal((await set(true)).status, 200);
+    assert.equal((await me()).json.consents.LINE, true);
+    assert.equal(app.messaging.preview(ADMIN_A, T).audience, 1);          // 配信の対象に入る
+    assert.equal((await set(false)).status, 200);
+    assert.equal(app.messaging.preview(ADMIN_A, T).audience, 0);
+    // 登録フォームに同意項目があるときは、その値も同じ状態にそろう
+    const line = app.forms.addFromMaster(ADMIN_A, T, 'consent_line');
+    await set(true);
+    const items = (await me()).json.items; assert.equal(items.find((i) => i.field_id === line.field_id).value, 'はい');
+    await set(false); assert.equal((await me()).json.items.find((i) => i.field_id === line.field_id).value, 'いいえ');
+    assert.ok(app.store.select('audit_logs').some((l) => l.action === 'MEMBER_CONSENT_CHANGE'));
+    // 退会済みは変更できない
+    app.members.withdrawByUser(T, 'U1'); assert.equal((await set(true)).status, 400);
+  } finally { srv.closeAllConnections(); srv.close(); }
+});

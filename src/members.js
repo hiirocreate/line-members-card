@@ -98,6 +98,19 @@ export class MemberService {
     return this.store.find('members', (m) => m.member_id === member.member_id && m.tenant_id === tenantId);
   }
 
+  // ---- 配信の受け取り設定 (会員本人が会員証の画面から切り替える) ----
+  // 登録フォームに同意項目が無い店舗でも使える。同意項目がある場合は、その値も同じ状態にそろえる。
+  setConsentByUser(tenantId, userId, channel, granted) {
+    if (channel !== 'LINE') throw new ValidationError('この設定は変更できません');
+    if (typeof granted !== 'boolean') throw new ValidationError('設定の値が不正です');
+    const m = this.findByUser(tenantId, userId);
+    if (!m || m.status === 'WITHDRAWN') throw new ValidationError('会員が存在しません');
+    const f = this.forms.fields(tenantId).find((x) => x.consent_target === channel);
+    if (f) this.#write(m, f, granted);
+    this.#setConsent(m, { consent_target: channel }, granted);
+    audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: 'MEMBER_CONSENT_CHANGE', target: m.member_id, detail: { channel, granted } });
+  }
+
   // ---- 退会 (削除せず status=WITHDRAWN。データは保持し、配信同意は取り消す) ----
   #withdraw(m, actor, reason) {
     if (m.status === 'WITHDRAWN') throw new ValidationError('既に退会済みです');

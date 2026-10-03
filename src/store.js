@@ -7,7 +7,7 @@ export const SHEETS = {
   tenants: ['tenant_id', 'name', 'status', 'form_version', 'created_at', 'liff_id', 'login_channel_id', 'messaging_token', 'shopcard_url', 'require_friend', 'friend_url'],
   tenant_urls: ['token', 'tenant_id', 'enabled', 'created_at'],
   members: ['member_id', 'tenant_id', 'user_id', 'member_number', 'name', 'phone', 'email',
-    'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version', 'withdrawn_at', 'withdraw_reason'],
+    'registered_at', 'last_visit_at', 'visit_count', 'status', 'form_version', 'withdrawn_at', 'withdraw_reason', 'notify_prefs'],
   field_master: ['key', 'label', 'field_type', 'sensitivity', 'purpose_text', 'core_column', 'options',
     'enabled', 'created_at', 'consent_target'],
   custom_fields: ['field_id', 'tenant_id', 'master_key', 'field_name', 'field_type', 'required', 'enabled',
@@ -32,7 +32,7 @@ export const SHEETS = {
   visits: ['visit_id', 'tenant_id', 'member_id', 'visited_at', 'method', 'recorded_by'],
   messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at', 'coupon_id'],
 };
-const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result']);
+const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result', 'notify_prefs']);
 
 export class Store {
   constructor(file = null) {

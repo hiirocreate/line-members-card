@@ -44,9 +44,10 @@ export class BirthdayService {
     const consented = new Set(this.store.select('member_consents', (c) => c.tenant_id === tenantId && c.channel === 'LINE' && c.granted).map((c) => c.member_id));
     const sent = new Set(this.store.select('birthday_sends', (s) => s.tenant_id === tenantId).map((s) => `${s.member_id}:${s.year}`));
     const targets = [], skipped = { notConsented: 0, alreadySent: 0 };
+    // (誕生日のお知らせを断っている会員は「未同意」として数える)
     for (const c of cands) {
       if (sent.has(`${c.m.member_id}:${c.year}`)) skipped.alreadySent++;
-      else if (!consented.has(c.m.member_id)) skipped.notConsented++;
+      else if (!consented.has(c.m.member_id) || !this.members.prefsOf(c.m).birthday) skipped.notConsented++;
       else targets.push(c);
     }
     return { matched: cands.length, targets, skipped };

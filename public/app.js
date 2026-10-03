@@ -68,13 +68,13 @@ function showCard(me, opts = {}) {
   let cur = me, logo = null, bg = null, qrCanvas = null, privacy = !!opts.privacy; // privacy: 個人情報とQRを隠している状態
   const canvas = el('canvas', { className: 'card-canvas', 'aria-label': '会員証' });
   const qrBox = el('div', { id: 'qr' });
-  const qrCard = el('div', { className: 'card', style: 'text-align:center' }, qrBox);
+  const qrCard = el('div', { className: 'card mini', style: 'text-align:center' }, qrBox);
   const qrHidden = el('div', { className: 'card', style: 'text-align:center;opacity:.8' }, 'QRコードは非表示です');
-  const hint = el('small', { style: 'display:block;text-align:center;margin-bottom:8px' });
-  const visit = el('div', { id: 'visit', style: 'margin:10px 0;font-weight:bold;text-align:center' });
+  const hint = el('small', { className: 'mini-t' });
+  const visit = el('div', { id: 'visit', style: 'margin:4px 0;font-size:13px;font-weight:bold;text-align:center' });
   const infoCard = el('div', { className: 'card' });
   const dl = el('dl'); for (const i of me.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value)); infoCard.append(dl);
-  const toggle = el('button', { className: 'sub', style: 'margin:8px 0' }, '');
+  const toggle = el('button', { className: 'chip' }, '');
   const paint = () => drawCard(canvas, design, cardData(cur), { logo, bg, qr: design.qr === 'inside' && !privacy ? qrCanvas : null, privacy });
   const renderVisit = () => { visit.textContent = privacy ? '最終来店: ••••' : visitText(cur); };
 
@@ -92,18 +92,25 @@ function showCard(me, opts = {}) {
 
   // 隠す/表示する: 個人情報(氏名・来店・登録情報の一覧)とQRコードをまとめて切り替える
   function applyPrivacy() {
-    toggle.textContent = privacy ? '情報とQRコードを表示する' : '情報とQRコードを隠す';
+    toggle.replaceChildren((privacy ? ICON.eye : ICON.eyeOff)(), privacy ? '表示する' : '隠す'); toggle.classList.toggle('on', privacy);
     infoCard.style.display = privacy ? 'none' : '';
     qrCard.style.display = privacy ? 'none' : ''; qrHidden.style.display = privacy && design.qr === 'below' ? '' : 'none';
-    hint.textContent = privacy ? '個人情報とQRコードを隠しています。来店時は「表示する」を押してください。' : '来店時にこの画面を店舗スタッフにお見せください(QRは自動で更新されます)';
+    hint.textContent = privacy ? '個人情報とQRを隠しています。来店時は「表示する」を押してください' : '来店時にこの画面をスタッフにお見せください(QRは自動更新)';
     renderVisit(); paint();
     if (privacy) { clearTimeout(qrTimer); qrCanvas = null; qrBox.replaceChildren(); } else if (window.QRCode) refreshQr();
   }
   toggle.onclick = () => { privacy = !privacy; applyPrivacy(); };
 
-  root.replaceChildren(el('h1', {}, design.shopName.text || me.shop), canvas, visit); // 見出しも、デザインで設定した店舗名に合わせる
+  root.replaceChildren(el('h1', { className: 'shop' }, design.shopName.text || me.shop), canvas, visit); // 見出しも、デザインで設定した店舗名に合わせる
   if (design.qr === 'below') root.append(qrCard, qrHidden); else qrHidden.style.display = 'none';
-  root.append(hint, toggle);
+  root.append(hint);
+  // 操作ボタン: 1行にコンパクトに並べる (詳細はシートで開く)
+  const editable = form.fields.filter((f) => f.user_editable && !f.consent_target); // 同意は「お知らせ」の設定から変更する
+  const bar = el('div', { className: 'bar' }, toggle,
+    chip(ICON.image, '画像保存', () => showCardImage(cur, design, logo, bg, privacy)),
+    ...(design.page.showNotice !== false ? [chip(ICON.bell, 'お知らせ', () => noticeSheet(cur, () => refreshMe()))] : []),
+    chip(ICON.menu, 'メニュー', () => menuSheet(cur, editable)));
+  root.append(bar);
   paint(); // 画像の読み込み前にも、まず文字だけで描く
   Promise.all([assetImage(design.logo.imageId), assetImage(design.background.imageId)]).then(([l, b]) => { logo = l; bg = b; paint(); });
   if (!window.QRCode) root.append(el('div', { className: 'err' }, 'QRコードを表示できません'));
@@ -112,31 +119,58 @@ function showCard(me, opts = {}) {
   meTimer = setInterval(() => { if (!document.hidden) refreshMe(); }, 20_000);
   document.onvisibilitychange = () => { if (!document.hidden) { refreshMe(); if (window.QRCode && !privacy) refreshQr(); } };
 
-  if (design.page.welcomeText) root.append(el('div', { className: 'card welcome' }, design.page.welcomeText));
-  root.append(el('button', { className: 'sub', onclick: () => showCardImage(cur, design, logo, bg, privacy) }, 'カード画像を保存'));
-  if (me.shopcardUrl && design.page.showShopcard) root.append(el('button', { onclick: () => openLine(me.shopcardUrl) }, '公式LINEのショップカードを開く'));
-  if (me.notice) root.append(el('div', { className: 'card notice' }, me.notice));
-  // LINEでのお知らせの受け取り (オン/オフ)。登録フォームに同意項目がなくても、ここからいつでも変更できる
-  if (design.page.showNotice !== false) {
-    const on = !!me.consents?.LINE;
-    root.append(el('div', { className: 'card' }, el('b', {}, 'LINEでのお知らせ'), el('div', { style: 'margin:6px 0' }, on ? '現在: 受け取る(オン)' : '現在: 受け取らない(オフ)'),
-      el('small', {}, '店舗からのお知らせやクーポンを、LINEで受け取るかどうかを選べます。いつでも変更できます。'),
-      el('button', { className: on ? 'sub' : '', onclick: async () => { try { await api('consent', { method: 'POST', body: { channel: 'LINE', granted: !on } }); showCard(await api('me'), { privacy }); } catch (e) { showError(e); } } }, on ? 'お知らせを受け取らない' : 'お知らせを受け取る')));
-  }
+  if (me.shopcardUrl && design.page.showShopcard) root.append(el('button', { className: 'chip cta', onclick: () => openLine(me.shopcardUrl) }, ICON.card(), '公式LINEのショップカードを開く'));
+  if (design.page.welcomeText) root.append(el('div', { className: 'card mini welcome' }, design.page.welcomeText));
+  if (me.notice) root.append(el('div', { className: 'card mini notice' }, me.notice));
   // 使えるクーポン (読み込みは非同期)
   const couponBox = el('div'); root.append(couponBox);
   api('coupons').then(({ coupons }) => {
     const list = coupons.filter((x) => x.state === 'available');
     if (!list.length) return;
-    couponBox.append(el('div', { className: 'card' }, el('b', {}, `使えるクーポン(${list.length})`),
-      ...list.map((x) => el('div', { style: 'margin-top:10px;padding:10px;border:1px solid rgba(128,128,128,.4);border-radius:8px;cursor:pointer', onclick: () => showCoupon(x.coupon.coupon_id, cur) },
+    couponBox.append(el('div', { className: 'card mini' }, el('b', {}, `🎟 使えるクーポン(${list.length})`),
+      ...list.map((x) => el('div', { style: 'margin-top:8px;padding:8px 10px;border:1px solid rgba(128,128,128,.4);border-radius:10px;cursor:pointer', onclick: () => showCoupon(x.coupon.coupon_id, cur) },
         el('div', { style: 'font-weight:bold' }, x.coupon.title), x.coupon.benefit ? el('div', { style: 'color:#d9381e;font-weight:bold' }, x.coupon.benefit) : null,
         el('small', {}, x.coupon.valid_until ? `有効期限: ${x.coupon.valid_until.replaceAll('-', '/')}まで` : '有効期限なし')))));
   }).catch(() => { /* クーポンが読めなくても会員証は使える */ });
-  if (design.page.showInfoList) root.append(infoCard); else infoCard.style.display = 'none';
-  const editable = form.fields.filter((f) => f.user_editable && !f.consent_target); // 同意は「LINEでのお知らせ」の欄から変更する
-  if (editable.length) root.append(el('button', { className: 'sub', onclick: () => showEdit(me, editable) }, '登録情報を変更する'));
-  root.append(el('button', { className: 'sub', style: 'background:transparent;color:#c00;border:1px solid #c00', onclick: () => showWithdraw(me) }, '退会する'));
+  if (design.page.showInfoList) root.append(el('details', { className: 'card mini' }, el('summary', {}, '登録情報'), infoCard)); // 折りたたみ (1画面に収めるため)
+  infoCard.className = ''; infoCard.style.margin = '6px 0 0';
+}
+
+const svg = (d) => () => { const n = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); n.setAttribute('viewBox', '0 0 24 24'); n.innerHTML = d; return n; }; // 固定の図形のみ
+const ICON = {
+  image: svg('<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.5"/><path d="M21 15l-5-5L5 21"/>'),
+  bell: svg('<path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/>'),
+  menu: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+  eye: svg('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>'),
+  eyeOff: svg('<path d="M17.9 17.9A10.9 10.9 0 0112 19c-7 0-11-7-11-7a19 19 0 015.1-5.9M9.9 4.2A10.7 10.7 0 0112 4c7 0 11 7 11 7a19 19 0 01-2.2 3.2"/><path d="M1 1l22 22"/>'),
+  card: svg('<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>'),
+};
+const chip = (icon, label, onclick, extra = '') => el('button', { className: `chip ${extra}`.trim(), onclick }, icon(), label);
+
+// 下からのシート(ダイアログ)。LINE内ブラウザでも使える標準の <dialog>
+function sheet(title, ...nodes) {
+  const d = el('dialog', { className: 'sheet' }, el('h2', {}, title), ...nodes, el('button', { className: 'chip', style: 'width:100%;margin-top:12px;padding:11px', onclick: () => d.close() }, '閉じる'));
+  d.addEventListener('close', () => d.remove()); document.body.append(d); d.showModal(); return d;
+}
+const toggleRow = (label, sub, checked, onchange, disabled = false) => {
+  const cb = el('input', { type: 'checkbox', className: 'sw', checked, disabled, onchange: () => onchange(cb) });
+  return { node: el('label', { className: 'row2' }, el('div', {}, el('div', { style: 'font-size:14px' }, label), sub ? el('small', {}, sub) : null), cb), cb };
+};
+// LINEでのお知らせ: 全体のオン/オフ + 受け取る内容の選択
+function noticeSheet(me, onDone) {
+  const err = el('div', { className: 'err' }); let on = !!me.consents?.LINE; const prefs = { ...(me.prefs ?? { news: true, coupon: true, birthday: true }) };
+  const save = async (fn) => { try { err.textContent = ''; await fn(); onDone(); } catch (e) { err.textContent = e.message; } };
+  const kinds = [['news', 'お知らせ・キャンペーン', '新商品やイベントのご案内'], ['coupon', 'クーポン', 'お得なクーポンの配信'], ['birthday', 'お誕生日のお祝い', 'メッセージやクーポン']];
+  const subs = kinds.map(([k, l, d]) => toggleRow(l, d, prefs[k], (cb) => save(async () => { prefs[k] = cb.checked; await api('prefs', { method: 'POST', body: { [k]: cb.checked } }); }), !on));
+  const main = toggleRow('LINEでお知らせを受け取る', '店舗からのお知らせやクーポンをLINEで受け取ります', on, (cb) => save(async () => {
+    await api('consent', { method: 'POST', body: { channel: 'LINE', granted: cb.checked } }); on = cb.checked; for (const s of subs) s.cb.disabled = !on;
+  }));
+  sheet('LINEでのお知らせ', main.node, el('div', { className: 'mini-t', style: 'text-align:left;margin-top:8px' }, '受け取る内容'), ...subs.map((s) => s.node), err);
+}
+function menuSheet(me, editable) {
+  const d = sheet('メニュー',
+    ...(editable.length ? [el('button', { className: 'lnk', onclick: () => { d.close(); showEdit(me, editable); } }, '登録情報を変更する')] : []),
+    el('button', { className: 'lnk dng', onclick: () => { d.close(); showWithdraw(me); } }, '退会する'));
 }
 
 // カードを画像として表示 (LINE内ブラウザは直接ダウンロードできないことがあるため、長押しで保存してもらう)

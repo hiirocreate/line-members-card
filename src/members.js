@@ -112,6 +112,32 @@ export class MemberService {
     audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: 'MEMBER_CONSENT_CHANGE', target: m.member_id, detail: { channel, granted } });
   }
 
+  // 受け取る内容の設定 (LINE全体のオン/オフとは別)。既定はすべて受け取る
+  static PREF_KEYS = ['news', 'coupon', 'birthday'];
+  prefsOf(m) {
+    const p = m.notify_prefs && typeof m.notify_prefs === 'object' ? m.notify_prefs : {};
+    return Object.fromEntries(MemberService.PREF_KEYS.map((k) => [k, p[k] !== false]));
+  }
+  setPrefsByUser(tenantId, userId, input) {
+    const m = this.findByUser(tenantId, userId);
+    if (!m || m.status === 'WITHDRAWN') throw new ValidationError('会員が存在しません');
+    const next = this.prefsOf(m);
+    for (const k of MemberService.PREF_KEYS) if (input?.[k] !== undefined) { if (typeof input[k] !== 'boolean') throw new ValidationError('設定の値が不正です'); next[k] = input[k]; }
+    this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === m.member_id, { notify_prefs: next });
+    audit(this.store, { tenant_id: tenantId, actor: { id: userId }, action: 'MEMBER_PREFS_CHANGE', target: m.member_id, detail: next });
+    return next;
+  }
+  // 会員証に出す氏名: 氏名項目(コア列)が空なら、「氏名/名前」という名前の文字項目の値を使う
+  cardName(tenantId, m) {
+    if (m.name) return m.name;
+    const vals = this.#valuesOf(tenantId, m.member_id);
+    for (const f of this.forms.fields(tenantId).filter((x) => x.field_type === 'TEXT' && /氏名|名前|なまえ|ネーム/.test(x.field_name))) {
+      const v = this.#read(m, f, vals);
+      if (typeof v === 'string' && v) return v;
+    }
+    return '';
+  }
+
   // ---- 退会 (削除せず status=WITHDRAWN。データは保持し、配信同意は取り消す) ----
   #withdraw(m, actor, reason) {
     if (m.status === 'WITHDRAWN') throw new ValidationError('既に退会済みです');

@@ -10,15 +10,15 @@ export class MessagingService {
   constructor(store, vault, members, fetchImpl = fetch) { Object.assign(this, { store, vault, members, fetchImpl }); }
 
   // 配信対象の LINE userId 一覧 (退会済み・未同意は含めない)
-  audience(actor, tenantId, where) {
+  audience(actor, tenantId, where, kind = 'news') {
     require_(actor, 'MESSAGE_SEND', tenantId);
     const { _rows } = this.members.search(actor, tenantId, { where, limit: Infinity, status: 'ACTIVE' });
     const consented = new Set(this.store.select('member_consents', (c) => c.tenant_id === tenantId && c.channel === 'LINE' && c.granted).map((c) => c.member_id));
-    const targets = _rows.map((r) => r.m).filter((m) => consented.has(m.member_id));
+    const targets = _rows.map((r) => r.m).filter((m) => consented.has(m.member_id) && this.members.prefsOf(m)[kind]);
     return { matched: _rows.length, userIds: targets.map((m) => m.user_id), memberByUser: new Map(targets.map((m) => [m.user_id, m.member_id])) };
   }
-  preview(actor, tenantId, where) {
-    const a = this.audience(actor, tenantId, where);
+  preview(actor, tenantId, where, couponId) {
+    const a = this.audience(actor, tenantId, where, couponId ? 'coupon' : 'news');
     return { matched: a.matched, audience: a.userIds.length };
   }
 
@@ -38,7 +38,7 @@ export class MessagingService {
       if (!url) throw new ValidationError('クーポンのURLを作れません。「LINE連携」でLIFF IDを設定してください');
       messages.push(couponFlex({ shop: this.store.find('tenants', (t) => t.tenant_id === tenantId)?.name ?? '', coupon, url, untilText: this.coupons.untilText(coupon) }));
     }
-    const { userIds, memberByUser } = this.audience(actor, tenantId, where);
+    const { userIds, memberByUser } = this.audience(actor, tenantId, where, coupon ? 'coupon' : 'news');
     if (!userIds.length) throw new ValidationError('配信対象の会員がいません');
     if (expectedCount !== userIds.length) throw new ValidationError(`配信対象が変わりました(現在 ${userIds.length}人)。再度確認してください`);
     const row = { message_id: randomUUID(), tenant_id: tenantId, created_by: actor.id, text: body || `(クーポン) ${coupon.title}`, audience: userIds.length, sent: 0, failed: 0, errors: [], status: 'SENDING', created_at: new Date().toISOString(), coupon_id: coupon?.coupon_id ?? '' };

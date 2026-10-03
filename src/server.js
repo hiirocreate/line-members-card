@@ -99,7 +99,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     }
     if (req.method === 'GET' && rest === 'form') return send(res, 200, { shop, version: form.version, fields: form.fields.map(strip) });
     if (req.method === 'POST' && rest === 'confirm') return send(res, 200, app.members.confirmRegistration(tenantId, (await readBody(req)).values ?? {}));
-    if (['register', 'me', 'qr', 'withdraw', 'consent', 'friend', 'coupons', 'coupon'].includes(rest)) {
+    if (['register', 'me', 'qr', 'withdraw', 'consent', 'prefs', 'friend', 'coupons', 'coupon'].includes(rest)) {
       const userId = await verifyLine(bearer(req), line.loginChannelId, fetchImpl); // 必ずLINEのIDトークンから userId を得る(店舗ごとのチャネルで検証)
       if (req.method === 'GET' && rest === 'friend') return send(res, 200, await friendStatus(tenantId, userId)); // 登録前の確認(画面の案内用)
       if (req.method === 'POST' && rest === 'register') {
@@ -117,7 +117,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents,
-          card: app.card.get(tenantId).design, card_data: { name: member.name || '', member_number: member.member_number, registered_at: member.registered_at || null } });
+          card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), card_data: { name: app.members.cardName(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
       if (rest === 'coupons' || rest === 'coupon') { // クーポン (会員本人・有効な会員のみ)
@@ -133,6 +133,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         app.members.setConsentByUser(tenantId, userId, b.channel, b.granted);
         return send(res, 200, { ok: true });
       }
+      if (req.method === 'POST' && rest === 'prefs') return send(res, 200, { prefs: app.members.setPrefsByUser(tenantId, userId, await readBody(req)) });
       if (req.method === 'POST' && rest === 'withdraw') {
         app.members.withdrawByUser(tenantId, userId, (await readBody(req)).reason);
         return send(res, 200, { ok: true });
@@ -267,7 +268,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if (path === '/line-settings/test' && req.method === 'POST') return ok(await testMessaging(app.store, app.vault, actor, needTenant(), fetchImpl));
 
     // メッセージ配信 (LINE配信に同意した有効会員のみ)
-    if (path === '/messages/preview' && req.method === 'POST') return ok(app.messaging.preview(actor, needTenant(), body.where));
+    if (path === '/messages/preview' && req.method === 'POST') return ok(app.messaging.preview(actor, needTenant(), body.where, body.couponId));
     if (path === '/messages/send' && req.method === 'POST') return ok(await app.messaging.send(actor, needTenant(), body), 201);
     if (path === '/birthday' && req.method === 'GET') return ok({ ...app.birthday.get(actor, needTenant()), preview: app.birthday.preview(actor, needTenant()) });
     if (path === '/birthday' && req.method === 'PUT') { const t = needTenant(); const saved = app.birthday.save(actor, t, body); return ok({ ...saved, preview: app.birthday.preview(actor, t) }); }

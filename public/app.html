@@ -6,8 +6,8 @@
 <title>会員証</title>
 <style>
 body{font-family:sans-serif;margin:0;background:var(--page-bg,#f4f5f7);color:var(--page-text,#222)}
-.card-canvas{display:block;width:100%;height:auto;filter:drop-shadow(0 6px 14px rgba(0,0,0,.25));margin:8px 0}
-main{max-width:480px;margin:0 auto;padding:16px}
+.card-canvas{display:block;width:100%;height:auto;filter:drop-shadow(0 4px 10px rgba(0,0,0,.25));margin:4px 0}
+main{max-width:480px;margin:0 auto;padding:10px 14px}
 h1{font-size:20px}
 .card{background:var(--card-bg,#fff);color:var(--page-text,#222);border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,.1)}
 .f{margin:14px 0}.l{display:block;font-weight:bold}
@@ -16,8 +16,28 @@ label.o{display:block;margin:4px 0}small{opacity:.7;display:block}
 button{width:100%;padding:14px;margin-top:12px;font-size:16px;border:0;border-radius:8px;background:var(--accent,#06c755);color:var(--accent-text,#fff)}
 button.sub{background:#888;color:#fff}.err{color:#c00}.notice{background:#fff3cd;color:#222;padding:8px;border-radius:6px}.ok{color:#2e7d32}.welcome{text-align:center;white-space:pre-wrap}.hint{opacity:.7;font-size:13px}
 dl{margin:0}dt{font-weight:bold;margin-top:8px}dd{margin:0}
+h1.shop{font-size:15px;margin:2px 0 4px;text-align:center}
+main.compact{padding:8px 12px}.card.mini{padding:10px 12px;margin:8px 0;font-size:14px}
+.bar{display:flex;gap:6px;margin:8px 0}
+.chip{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;width:auto;margin:0;padding:9px 4px;font-size:13px;line-height:1;border-radius:999px;background:var(--card-bg,#fff);color:var(--page-text,#222);border:1px solid rgba(128,128,128,.35);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.chip svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chip.on{background:var(--accent,#06c755);color:var(--accent-text,#fff);border-color:transparent}
+.chip.cta{background:var(--accent,#06c755);color:var(--accent-text,#fff);border-color:transparent;margin:6px 0}
+.mini-t{font-size:12px;opacity:.75;text-align:center;margin:4px 0}
+dialog.sheet{border:0;border-radius:16px;padding:16px;width:min(92vw,420px);box-sizing:border-box;background:var(--card-bg,#fff);color:var(--page-text,#222)}
+dialog.sheet::backdrop{background:rgba(0,0,0,.45)}
+dialog.sheet h2{font-size:16px;margin:0 0 10px}
+.row2{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid rgba(128,128,128,.2)}
+.row2:first-of-type{border-top:0}
+.sw{appearance:none;width:44px;height:26px;border-radius:13px;background:#bbb;position:relative;flex:none;margin:0;cursor:pointer;transition:background .15s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.sw:checked{background:var(--accent,#06c755)}.sw:checked::after{left:21px}
+.sw:disabled{opacity:.4}
+.lnk{width:auto;background:none;color:inherit;margin:0;padding:10px 0;text-align:left;font-size:14px;border-top:1px solid rgba(128,128,128,.2);border-radius:0;display:block;width:100%}
+.lnk.dng{color:#c00}
+details.mini>summary{cursor:pointer;font-weight:bold;font-size:14px}
 #qr{display:flex;justify-content:center;margin:12px 0}
-#qr canvas,#qr img{background:#fff;padding:12px;border-radius:10px} /* 暗い背景でも読み取れるよう白い余白を付ける */
+#qr canvas,#qr img{background:#fff;padding:8px;border-radius:10px}#qr{margin:4px 0} /* 暗い背景でも読み取れるよう白い余白を付ける */
 </style>
 </head>
 <body>

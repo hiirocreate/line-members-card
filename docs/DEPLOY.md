@@ -122,3 +122,8 @@ gcloud scheduler jobs create http birthday-daily --location=asia-northeast1 \
   --headers="Authorization=Bearer $(gcloud secrets versions access latest --secret=cron-secret)"
 ```
 `CRON_SECRET` が未設定のときは、このエンドポイントは常に 401 を返す。
+
+## 14. 会員画面のコンパクト化 / お知らせの内容別設定
+- 会員証の下に「隠す / 画像保存 / お知らせ / メニュー」を1行で配置。登録情報は折りたたみ、変更・退会は「メニュー」に集約。
+- 「お知らせ」: LINE全体のオン/オフに加え、「お知らせ・キャンペーン」「クーポン」「お誕生日のお祝い」を個別に選べる。クーポン付き配信はクーポンを断った会員に、誕生日配信は誕生日を断った会員に送られない。
+- 氏名がカードに出ない場合に備え、氏名の列が空でも「氏名/名前」を含む名前の項目の値を使う。

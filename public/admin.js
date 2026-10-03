@@ -771,7 +771,7 @@ async function messagesView() {
     alert(`送信結果: ${r.status}(成功 ${r.sent}人 / 失敗 ${r.failed}人${couponSel.value ? ` / クーポン配布 ${r.granted}人` : ''})${r.errors.length ? '\n' + r.errors.join('\n') : ''}`); render();
   }), 'pri');
   const preview = btn('対象人数を確認', run(err, async () => {
-    const r = await api('/messages/preview', { method: 'POST', body: { where: cb.where() } });
+    const r = await api('/messages/preview', { method: 'POST', body: { where: cb.where(), couponId: couponSel.value || undefined } });
     expected = r.audience; count.textContent = `配信対象: ${r.audience}人(条件に一致した有効会員 ${r.matched}人のうち、LINE配信に同意している会員)`;
   }));
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, 'LINEメッセージ配信'),

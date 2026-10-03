@@ -48,7 +48,13 @@ function loginView() {
   const email = el('input', { type: 'email', autocomplete: 'username webauthn' }), pw = el('input', { type: 'password', autocomplete: 'current-password' });
   const code = el('input', { type: 'text', inputMode: 'numeric', autocomplete: 'one-time-code', placeholder: '6桁のコード または 回復コード' });
   const codeBox = lab('認証アプリのコード', code, '認証アプリのコードか、回復コードを入力してください。'); codeBox.style.display = 'none';
-  const passkeyBox = el('div', { style: 'display:none;margin-top:12px' }); 
+  const passkeyBox = el('div', { style: 'display:none;margin-top:12px' });
+  const lineCode = el('input', { type: 'text', inputMode: 'numeric', autocomplete: 'one-time-code', placeholder: 'LINEに届いた6桁のコード', maxLength: 6 });
+  const sendLine = run(err, async () => {
+    await api('/login/line-code', { method: 'POST', body: { email: email.value, password: pw.value } });
+    err.className = 'ok'; err.textContent = 'LINEにコードを送りました(5分間有効)。届いたコードを入力して「ログイン」を押してください。'; lineCode.focus();
+  });
+  const lineBox = el('div', { style: 'display:none;margin-top:12px' }, btn('LINEにコードを送る', sendLine, 'pri'), lab('LINEに届いたコード', lineCode, '公式アカウントから届きます。届かない場合は、友だち追加とブロックの状態を確認してください。'));
   const base = () => ({ email: email.value, password: pw.value });
   const done = async (r) => { store.set(r.token); await boot(); };
   // パスキー: 毎回サーバから新しいチャレンジを受け取る (時間が経っても使える)
@@ -61,17 +67,19 @@ function loginView() {
     await done(await api('/login', { method: 'POST', body: { ...base(), challenge: r.passkey.token, assertion } }));
   });
   const go = run(err, async () => {
-    const r = await api('/login', { method: 'POST', body: { ...base(), code: code.value || undefined } });
+    const r = await api('/login', { method: 'POST', body: { ...base(), code: code.value || undefined, lineCode: lineCode.value || undefined } });
     if (!r.requires2fa) return done(r);
     err.textContent = '';
     codeBox.style.display = r.methods.includes('totp') ? '' : 'none';
     passkeyBox.style.display = r.methods.includes('passkey') ? '' : 'none';
+    lineBox.style.display = r.methods.includes('line') ? '' : 'none';
+    if (r.methods.includes('line') && r.lineAvailable === false) { err.className = 'err'; err.textContent = 'LINEのコード送信設定が無効です。別の方法でログインするか、管理者に2FAのリセットを依頼してください。'; }
     if (r.methods.includes('passkey')) { err.className = 'hint'; err.textContent = '指紋・顔・端末の画面ロックで確認してください。'; withPasskey(); }
     else code.focus();
   });
   passkeyBox.append(btn('パスキーでログイン(指紋・顔・画面ロック)', withPasskey, 'pri'), el('div', { className: 'hint' }, '認証アプリを使う場合は、上のコード欄に入力して「ログイン」を押してください。'));
-  for (const i of [pw, code]) i.addEventListener('keydown', (e) => e.key === 'Enter' && go());
-  root.replaceChildren(el('div', { className: 'login card' }, el('h2', {}, '管理画面ログイン'), lab('メールアドレス', email), lab('パスワード', pw), codeBox, err, passkeyBox,
+  for (const i of [pw, code, lineCode]) i.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+  root.replaceChildren(el('div', { className: 'login card' }, el('h2', {}, '管理画面ログイン'), lab('メールアドレス', email), lab('パスワード', pw), codeBox, err, passkeyBox, lineBox,
     el('div', { className: 'row', style: 'margin-top:12px' }, btn('ログイン', go, 'pri')), el('p', { className: 'hint' }, 'パスワードを忘れた場合は、店舗管理者または運営に再設定リンクの発行を依頼してください。')));
 }
 function resetView(token) {
@@ -586,7 +594,26 @@ async function accountView() {
       await api('/security/passkeys/register', { method: 'POST', body: { token: opt.token, credential, name: pkName.value } });
       render();
     }), 'pri')));
-  const cards = [pwCard, pkCard, el('div', { className: 'card' }, el('h2', {}, `認証アプリ(6桁のコード・${sec.email})`), box)];
+  // LINEでコードを受け取る (アプリ不要): 管理者のLINEアカウントを連携し、ログイン時に6桁のコードをLINEへ送る
+  const e6 = el('div', { className: 'err' }), lineInfo = el('div'), lpw = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'パスワード' });
+  if (sec.line.linked) {
+    lineInfo.append(el('p', { className: 'ok' }, 'LINEを連携済みです。ログイン時に、LINEへ認証コードが届きます。'), lab('パスワード(解除の確認)', lpw), e6,
+      el('div', { className: 'row', style: 'margin-top:8px' }, btn('連携を解除', run(e6, async () => { await api('/security/line/unlink', { method: 'POST', body: { password: lpw.value } }); render(); }), 'dng')));
+  } else {
+    lineInfo.append(el('p', { className: 'hint' }, sec.line.available ? 'ご自身のLINEアカウントを連携します。連携したあとは、ログインのたびに、LINEへ6桁のコードが届きます(認証アプリは不要です)。公式アカウントを友だち追加していないと、コードが届きません。'
+      : (ST.me.role === 'OPERATOR' ? 'システムのLINE送信設定(環境変数 LINE_SYSTEM_MESSAGING_TOKEN)がないため、利用できません。' : '先に「LINE連携」タブで、メッセージ用のチャネルアクセストークンと LIFF ID を設定してください。')), e6);
+    if (sec.line.available) lineInfo.append(btn('LINEアカウントを連携する', run(e6, async () => {
+      const r = await api('/security/line/start', { method: 'POST' });
+      await loadScript('/vendor/qrcode.min.js');
+      const q = el('div', { style: 'margin:12px 0;background:#fff;display:inline-block;padding:12px;border-radius:10px' }); new window.QRCode(q, { text: r.url, width: 200, height: 200, correctLevel: window.QRCode.CorrectLevel.L }); // URLが長いので誤り訂正を下げて収める
+      lineInfo.replaceChildren(el('p', {}, 'スマホのLINEで、次のQRコードを読み取る(またはリンクを開く)と、連携が完了します。10分間有効です。'), q,
+        el('div', { className: 'hint', style: 'word-break:break-all' }, el('a', { href: r.url, target: '_blank', rel: 'noopener' }, 'スマホで開く')), el('p', { className: 'hint' }, '連携が終わると、この画面が自動で更新されます。'));
+      clearInterval(pollTimer);
+      pollTimer = setInterval(async () => { try { if ((await api('/security')).line.linked) { clearInterval(pollTimer); render(); } } catch { clearInterval(pollTimer); } if (Date.now() > r.expiresAt) clearInterval(pollTimer); }, 3000);
+    }), 'pri'));
+  }
+  const lineCard = el('div', { className: 'card' }, el('h2', {}, 'LINEでコードを受け取る'), lineInfo);
+  const cards = [pwCard, pkCard, lineCard, el('div', { className: 'card' }, el('h2', {}, `認証アプリ(6桁のコード・${sec.email})`), box)];
   if (ST.me.role === 'STORE_ADMIN') {
     const { admins } = await api('/admins'); const e4 = el('div', { className: 'err' });
     cards.push(el('div', { className: 'card' }, el('h2', {}, 'スタッフのアカウント'), el('div', { className: 'hint' }, 'パスワードを忘れたスタッフには「再設定リンク」を発行して本人に渡してください。'), adminsCard(admins, e4, render), e4));
@@ -627,9 +654,10 @@ async function opsView() {
 const VIEWS = { form: formView, card: cardView, members: membersView, scan: scanView, messages: messagesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
 // 描画は1つずつ直列に実行し、実行中に再要求があれば終了後にもう一度だけ描き直す。
 // (画面を素早く切り替えたとき、遅れて終わった前の画面が今の画面を上書きしないようにする)
-let rendering = false, renderAgain = false;
+let rendering = false, renderAgain = false, pollTimer = null;
 async function doRender() {
   scanStop(); // 別タブへ移動したらカメラを止める
+  clearInterval(pollTimer);
   if (!ST.me) return loginView();
   try { await VIEWS[ST.tab](); } catch (e) { if (ST.me) layout(el('div', { className: 'card err' }, errText(e))); }
 }

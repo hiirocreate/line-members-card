@@ -8,7 +8,8 @@ import { SheetsStore } from './sheetsStore.js';
 import { renderForm } from './render.js';
 import { ValidationError, AuthError } from './sanitize.js';
 import { Forbidden, PERMS, can, require_ } from './permissions.js';
-import { login, verifySession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey } from './auth.js';
+import { login, verifySession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey, sendLineCode, startLineLink, readLineLink, completeLineLink, unlinkLine, lineLinked } from './auth.js';
+import { push } from './line.js';
 import { resolveLine, publicLine, setLine, testMessaging } from './settings.js';
 import { addMasterField, setBannedTerms, listMaster, getBannedTerms } from './master.js';
 import { listAudit } from './audit.js';
@@ -24,10 +25,19 @@ const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.
   "connect-src 'self' https://*.line.me https://*.line-apps.com https://*.line-scdn.net; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'none'";
 
 export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANNEL_ID, liffId = process.env.LIFF_ID,
-  sessionSecret = process.env.SESSION_SECRET, publicOrigin = process.env.PUBLIC_ORIGIN, verifyLine = verifyLineIdToken, fetchImpl = app.fetchImpl ?? fetch } = {}) {
+  sessionSecret = process.env.SESSION_SECRET, publicOrigin = process.env.PUBLIC_ORIGIN, systemMessagingToken = process.env.LINE_SYSTEM_MESSAGING_TOKEN, verifyLine = verifyLineIdToken, fetchImpl = app.fetchImpl ?? fetch } = {}) {
   const defaults = { liffId, loginChannelId: lineChannelId }; // 店舗が個別設定していない場合の既定値
   if (!sessionSecret || sessionSecret.length < 32) throw new Error('SESSION_SECRET (32文字以上) が必要です');
   const limiter = new LoginLimiter();
+  // LINEでコードを受け取る二段階認証: 店舗の管理者は「店舗のLINE設定」、運営者は「共通(システム)の公式アカウント」で送る
+  const adminLine = (a) => (a.tenant_id ? resolveLine(app.store, app.vault, a.tenant_id, defaults)
+    : { liffId: defaults.liffId, loginChannelId: defaults.loginChannelId, messagingToken: systemMessagingToken || null });
+  const lineAvailable = (a) => { try { return !!adminLine(a).messagingToken; } catch { return false; } };
+  const sendToAdmin = async (a, text) => {
+    const t = adminLine(a).messagingToken;
+    if (!t) throw new ValidationError('LINEの送信設定がありません(管理画面の「LINE連携」でチャネルアクセストークンを登録してください)');
+    await push(t, a.line_user_id, [{ type: 'text', text }], fetchImpl);
+  };
   // パスキーの rpId / origin。PUBLIC_ORIGIN があればそれに固定、無ければアクセスされたホストから決める。
   // (rpId が違うと別のパスキーとして扱われるため、管理画面は常に同じURLで開くこと)
   const waOf = (req) => {
@@ -96,7 +106,16 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
   async function adminApi(req, res, url, path) {
     if (req.method === 'POST' && path === '/login') {
       const b = await readBody(req);
-      return send(res, 200, login(app.store, { email: b.email, password: b.password, code: b.code, assertion: b.assertion, challenge: b.challenge, webauthn: waOf(req), secret: sessionSecret, limiter, ip: req.socket.remoteAddress, vault: app.vault }));
+      return send(res, 200, login(app.store, { email: b.email, password: b.password, code: b.code, lineCode: b.lineCode, lineAvailable, assertion: b.assertion, challenge: b.challenge, webauthn: waOf(req), secret: sessionSecret, limiter, ip: req.socket.remoteAddress, vault: app.vault }));
+    }
+    if (req.method === 'POST' && path === '/login/line-code') { // パスワード確認のうえ、連携済みのLINEへ6桁のコードを送る
+      const b = await readBody(req);
+      await sendLineCode(app.store, { email: b.email, password: b.password, limiter, ip: req.socket.remoteAddress, send: sendToAdmin, lineAvailable });
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && path === '/line-link/complete') { // スマホのLINE(ミニアプリ画面)から呼ばれる。リンク+LINEのIDトークンで本人確認
+      const b = await readBody(req);
+      return send(res, 200, await completeLineLink(app.store, app.vault, { link: b.link, idToken: b.idToken, verifyLine: (tok, ch) => verifyLine(tok, ch, fetchImpl), channelIdFor: (a) => adminLine(a).loginChannelId, send: sendToAdmin }));
     }
     if (req.method === 'POST' && path === '/password-reset/consume') { // 再設定リンク(1回限り)からの新パスワード設定
       const b = await readBody(req);
@@ -125,7 +144,15 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if ((m = /^\/admins\/([\w-]+)\/reset-link$/.exec(path)) && req.method === 'POST') { const r = issueResetToken(app.store, actor, m[1]); return ok({ ...r, path: `/admin#reset=${r.token}` }, 201); }
 
     // 自分のアカウント: パスワード変更 / 二段階認証
-    if (path === '/security' && req.method === 'GET') return ok({ email: actor.email, totp: actor.totp, passkeys: listPasskeys(app.store, actor) });
+    if (path === '/security' && req.method === 'GET') return ok({ email: actor.email, totp: actor.totp, passkeys: listPasskeys(app.store, actor), line: { linked: lineLinked(app.store, actor), available: lineAvailable(app.store.find('admins', (x) => x.admin_id === actor.id)) } });
+    if (path === '/security/line/start' && req.method === 'POST') {
+      const a = app.store.find('admins', (x) => x.admin_id === actor.id), l = adminLine(a);
+      if (!l.messagingToken) throw new ValidationError(a.tenant_id ? '先に「LINE連携」タブでメッセージ用チャネルアクセストークンを登録してください' : 'システムのLINE送信設定(LINE_SYSTEM_MESSAGING_TOKEN)がありません');
+      if (!l.liffId) throw new ValidationError('LIFF IDが未設定です(「LINE連携」タブで設定してください)');
+      const r = startLineLink(app.vault, actor);
+      return ok({ url: `https://liff.line.me/${l.liffId}?link=${r.token}`, expiresAt: r.expiresAt });
+    }
+    if (path === '/security/line/unlink' && req.method === 'POST') { unlinkLine(app.store, actor, { password: body.password }); return ok(); }
     if (path === '/security/passkeys/options' && req.method === 'POST') return ok(beginPasskeyRegistration(app.store, app.vault, actor, { password: body.password, rpId: waOf(req).rpId }));
     if (path === '/security/passkeys/register' && req.method === 'POST') return ok(finishPasskeyRegistration(app.store, app.vault, actor, { token: body.token, credential: body.credential, name: body.name, ...waOf(req) }), 201);
     if (path === '/security/passkeys/delete' && req.method === 'POST') { deletePasskey(app.store, actor, { id: body.id, password: body.password }); return ok(); }
@@ -218,8 +245,9 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     const p = url.pathname;
     if (p === '/healthz' || p === '/status') return send(res, 200, { ok: true }); // Cloud Run の run.app では /healthz がGoogle側で予約され届かないため /status も用意
     if (req.method === 'GET' && p === '/app/config.json') { // 店舗ごとの LIFF ID (未設定なら既定値)
-      const t = url.searchParams.get('t');
+      const t = url.searchParams.get('t'), link = url.searchParams.get('link');
       let id = liffId ?? '';
+      if (link) { try { id = adminLine(readLineLink(app.vault, app.store, link).admin).liffId || id; } catch { /* 無効なリンクは既定値 */ } }
       try { if (/^[0-9a-f]{32}$/.test(t ?? '')) id = resolveLine(app.store, app.vault, app.forms.resolveTenant(t), defaults).liffId || id; } catch { /* 無効なtokenは既定値 */ }
       return send(res, 200, { liffId: id });
     }

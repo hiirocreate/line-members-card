@@ -153,17 +153,36 @@ function showRegister() {
 }
 
 // ---- 起動: 店舗tokenを特定 → LIFF初期化(自動ログイン) → 会員証 or 登録 ----
-function findToken() {
+// URLのパラメータ (?t=… / ?link=…)。LIFFの仕様で liff.state に入る場合も考慮する
+function findParam(name) {
   const q = new URLSearchParams(location.search);
   const st = new URLSearchParams((q.get('liff.state') || '').replace(/^\//, '').replace(/^\?/, ''));
-  const t = q.get('t') || st.get('t');
+  return q.get(name) || st.get(name);
+}
+function findToken() {
+  const t = findParam('t');
   if (/^[0-9a-f]{32}$/.test(t || '')) { mem.set('t', t); return t; }
   const saved = mem.get('t'); // LINEのトーク/ホームから開き直した場合など、?t= が無いときは前回の店舗
   return /^[0-9a-f]{32}$/.test(saved || '') ? saved : null;
 }
 
+// 管理者のLINE連携 (二段階認証でLINEにコードを受け取るため): 管理画面で発行したリンクをスマホのLINEで開く
+async function linkMode(link) {
+  root.replaceChildren(el('h1', {}, 'LINEの連携'), el('div', { className: 'card' }, '確認しています...'));
+  const { liffId } = await (await fetch(`/app/config.json?link=${encodeURIComponent(link)}`)).json();
+  await liff.init({ liffId });
+  if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+  const r = await fetch('/api/admin/line-link/complete', { method: 'POST', body: JSON.stringify({ link, idToken: liff.getIDToken() }) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || '連携できませんでした');
+  root.replaceChildren(el('h1', {}, 'LINEの連携'), el('div', { className: 'card' }, el('p', {}, '連携が完了しました。管理画面に戻って、ご確認ください。'),
+    el('p', { className: 'hint' }, j.notified ? 'LINEに確認のメッセージを送りました。' : '確認のメッセージを送れませんでした。公式アカウントを友だち追加しているか、ブロックしていないか確認してください(連携自体は完了しています)。')));
+}
+
 (async () => {
   try {
+    const link = findParam('link');
+    if (link) return await linkMode(link);
     T = findToken();
     if (!T) throw new Error('このURLは無効です。店舗のメニューから開き直してください。');
     const { liffId } = await (await fetch(`/app/config.json?t=${T}`)).json();

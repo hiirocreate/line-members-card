@@ -36,3 +36,9 @@ export async function multicast(token, userIds, messages, fetchImpl = fetch) {
   }
   return { sent, failed, errors };
 }
+
+// 1人へのプッシュ送信 (二段階認証のコードなど)。友だちでない/ブロック中の相手には届かない(LINEの仕様)。
+export async function push(token, to, messages, fetchImpl = fetch) {
+  const r = await call(fetchImpl, token, '/v2/bot/message/push', { method: 'POST', headers: { 'x-line-retry-key': randomUUID() }, body: JSON.stringify({ to, messages }) });
+  if (!r.ok) throw new ValidationError(`LINEへ送信できませんでした (HTTP ${r.status})。公式アカウントの設定(チャネルアクセストークン)と、友だち追加の状態を確認してください`);
+}

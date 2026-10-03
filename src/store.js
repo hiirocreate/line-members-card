@@ -19,7 +19,7 @@ export const SHEETS = {
   audit_logs: ['log_id', 'tenant_id', 'actor', 'action', 'target', 'detail', 'created_at'],
   settings: ['key', 'value'],
   admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at', 'totp_secret', 'totp_pending',
-    'totp_enabled', 'recovery_codes', 'token_epoch'],
+    'totp_enabled', 'recovery_codes', 'token_epoch', 'line_user_id', 'line_linked_at'],
   passkeys: ['credential_id', 'admin_id', 'name', 'public_key', 'alg', 'sign_count', 'transports', 'created_at', 'last_used_at'],
   card_designs: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
   card_assets: ['asset_id', 'tenant_id', 'kind', 'mime', 'chunk', 'total', 'size', 'data', 'created_at'],

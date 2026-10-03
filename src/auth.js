@@ -1,5 +1,5 @@
 // 管理者認証(パスワード+署名付きセッション)と LINE ID トークン検証
-import { scryptSync, randomBytes, timingSafeEqual, createHmac, createHash, randomUUID } from 'node:crypto';
+import { scryptSync, randomBytes, randomInt, timingSafeEqual, createHmac, createHash, randomUUID } from 'node:crypto';
 import { ValidationError, AuthError } from './sanitize.js';
 import { require_, ROLES, Forbidden } from './permissions.js';
 import { audit } from './audit.js';
@@ -86,14 +86,15 @@ const passkeysOf = (store, adminId) => store.select('passkeys', (k) => k.admin_i
 // 戻り値: { token } | { requires2fa: true, methods: ['totp'|'passkey'], passkey?: {token, publicKey} }
 // 二段階認証は「認証アプリのコード/回復コード」か「パスキー(指紋・顔・画面ロック)」のどちらでも可。
 // webauthn: { rpId, origin } (パスキー使用時に必須。リクエストのホストから決める)
-export function login(store, { email, password, code, assertion, challenge, secret, limiter, ip = '', vault, webauthn }) {
+export function login(store, { email, password, code, lineCode, assertion, challenge, secret, limiter, ip = '', vault, webauthn, lineAvailable }) {
   const e = normEmail(email), key = `${e}|${ip}`;
   limiter?.check(key);
   const a = store.find('admins', (x) => x.email === e);
   const good = checkPassword(String(password ?? ''), a?.password_hash ?? DUMMY) && a?.enabled;
   if (!good) { limiter?.fail(key); throw new ValidationError('メールアドレスまたはパスワードが違います'); }
   const keys = passkeysOf(store, a.admin_id);
-  const methods = [...(a.totp_enabled ? ['totp'] : []), ...(keys.length ? ['passkey'] : [])];
+  // LINEを連携済みなら二段階目として必須 (送信設定が一時的に外れても、パスワードだけで入れる状態に戻さない)
+  const methods = [...(a.totp_enabled ? ['totp'] : []), ...(keys.length ? ['passkey'] : []), ...(a.line_user_id ? ['line'] : [])];
   let how = null;
   if (methods.length) {
     if (assertion) {
@@ -102,12 +103,15 @@ export function login(store, { email, password, code, assertion, challenge, secr
         store.update('passkeys', (k) => k.credential_id === r.credential_id, { sign_count: r.sign_count, last_used_at: new Date().toISOString() });
         how = 'passkey';
       } catch (err) { limiter?.fail(key); throw err; }
+    } else if (lineCode) {
+      if (!checkLineCode(a.admin_id, lineCode)) { limiter?.fail(key); throw new ValidationError('LINEのコードが正しくないか、期限切れです。もう一度コードを送ってください'); }
+      how = 'line';
     } else if (code && a.totp_enabled) {
       if (!checkSecondFactor(store, vault, a, code)) { limiter?.fail(key); throw new ValidationError('認証コードが正しくありません'); }
       how = 'totp';
     } else if (code) { limiter?.fail(key); throw new ValidationError('認証コードが正しくありません'); }
     else {
-      return { requires2fa: true, methods, passkey: keys.length && webauthn ? requestOptions(vault, { admin: a, rpId: webauthn.rpId, credentials: keys }) : undefined };
+      return { requires2fa: true, methods, lineAvailable: a.line_user_id ? !!lineAvailable?.(a) : undefined, passkey: keys.length && webauthn ? requestOptions(vault, { admin: a, rpId: webauthn.rpId, credentials: keys }) : undefined };
     }
   }
   limiter?.ok(key);
@@ -164,6 +168,75 @@ export function disable2fa(store, vault, actor, { password, code }) {
   audit(store, { tenant_id: a.tenant_id, actor, action: 'ADMIN_2FA_DISABLE', target: a.admin_id });
 }
 
+// ---- LINEでコードを受け取る二段階認証 ----
+// コードは6桁・5分有効・5回まで試行可・1回限り。メモリ上にハッシュだけを保持する(再起動で破棄される)。
+// 送信: 30秒に1回・1時間に5回まで。パスワードが正しい人にだけ送る(誰でもLINEを鳴らせないように)。
+const lineCodes = new Map(); // adminId -> { hash, exp, tries }
+const lineRate = new Map(); // adminId -> { sentAt, history: [時刻...] } (コードを使い切っても送信制限は残す)
+const LINE_CODE_TTL = 5 * 60_000, LINE_CODE_TRIES = 5;
+const codeHash = (adminId, code) => createHash('sha256').update(`${adminId}:${String(code).trim()}`).digest();
+function checkLineCode(adminId, code) {
+  const e = lineCodes.get(adminId);
+  if (!e || e.exp < Date.now() || !/^\d{6}$/.test(String(code).trim())) return false;
+  if (++e.tries > LINE_CODE_TRIES) { lineCodes.delete(adminId); return false; }
+  const ok = timingSafeEqual(e.hash, codeHash(adminId, code));
+  if (ok) lineCodes.delete(adminId);
+  return ok;
+}
+// send(admin, text): 実際の送信 (サーバが店舗ごとのトークンで実行する)
+export async function sendLineCode(store, { email, password, limiter, ip = '', send, lineAvailable }) {
+  const e = normEmail(email), key = `${e}|${ip}`;
+  limiter?.check(key);
+  const a = store.find('admins', (x) => x.email === e);
+  const good = checkPassword(String(password ?? ''), a?.password_hash ?? DUMMY) && a?.enabled;
+  if (!good) { limiter?.fail(key); throw new ValidationError('メールアドレスまたはパスワードが違います'); }
+  if (!a.line_user_id || !lineAvailable?.(a)) throw new ValidationError('このアカウントはLINEでのコード受け取りが設定されていません');
+  const now = Date.now(), cur = lineRate.get(a.admin_id), history = (cur?.history ?? []).filter((t) => now - t < 3600_000);
+  if (cur && now - cur.sentAt < 30_000) throw new ValidationError('コードは30秒に1回まで送れます。少し待ってからやり直してください');
+  if (history.length >= 5) throw new ValidationError('コードの送信回数の上限に達しました。しばらくしてからお試しください');
+  const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+  await send(a, `【会員管理】ログイン認証コード: ${code}\n5分間有効です。心当たりがない場合は、このメッセージを無視し、パスワードを変更してください。`);
+  lineCodes.set(a.admin_id, { hash: codeHash(a.admin_id, code), exp: now + LINE_CODE_TTL, tries: 0 });
+  lineRate.set(a.admin_id, { sentAt: now, history: [...history, now] });
+  audit(store, { tenant_id: a.tenant_id, actor: { id: a.admin_id }, action: 'ADMIN_LINE_CODE_SENT', target: a.admin_id });
+}
+
+// 連携: ログイン中の管理者がリンクを発行 → スマホのLINEで開く → LINEのIDトークンで本人(LINEアカウント)を確認して紐づける
+const linkUsed = new Map();
+export function startLineLink(vault, actor) {
+  const exp = Date.now() + 10 * 60_000;
+  return { token: vault.sign('line-link', { a: actor.id, e: exp, n: randomBytes(9).toString('base64url') }), expiresAt: exp };
+}
+export function readLineLink(vault, store, token) { // 設定の参照用 (使い切りの消費はしない)
+  const p = vault.verify('line-link', token);
+  if (!p || !(p.e > Date.now())) throw new ValidationError('連携リンクが無効か、期限切れです。管理画面でもう一度発行してください');
+  const a = getAdmin(store, p.a);
+  if (!a?.enabled) throw new ValidationError('連携リンクが無効です');
+  return { admin: a, payload: p };
+}
+export async function completeLineLink(store, vault, { link, idToken, verifyLine, channelIdFor, send }) {
+  const { admin, payload } = readLineLink(vault, store, link);
+  for (const [n, e] of linkUsed) if (e < Date.now()) linkUsed.delete(n);
+  if (linkUsed.has(payload.n)) throw new ValidationError('この連携リンクは使用済みです');
+  const userId = await verifyLine(idToken, channelIdFor(admin));
+  const dup = store.find('admins', (x) => x.line_user_id === userId && x.admin_id !== admin.admin_id);
+  if (dup) throw new ValidationError('このLINEアカウントは、別の管理者に連携されています');
+  linkUsed.set(payload.n, payload.e);
+  store.update('admins', (x) => x.admin_id === admin.admin_id, { line_user_id: userId, line_linked_at: new Date().toISOString() });
+  audit(store, { tenant_id: admin.tenant_id, actor: { id: admin.admin_id }, action: 'ADMIN_LINE_LINK', target: admin.admin_id });
+  let notified = true;
+  try { await send({ ...admin, line_user_id: userId }, '【会員管理】LINEの連携が完了しました。ログイン時に、このLINEへ認証コードが届きます。'); } catch { notified = false; }
+  return { linked: true, notified };
+}
+export function unlinkLine(store, actor, { password }) {
+  const a = getAdmin(store, actor.id);
+  if (!checkPassword(String(password ?? ''), a.password_hash)) throw new ValidationError('パスワードが違います');
+  store.update('admins', (x) => x.admin_id === a.admin_id, { line_user_id: '', line_linked_at: '' });
+  lineCodes.delete(a.admin_id);
+  audit(store, { tenant_id: a.tenant_id, actor, action: 'ADMIN_LINE_UNLINK', target: a.admin_id });
+}
+export const lineLinked = (store, actor) => !!getAdmin(store, actor.id)?.line_user_id;
+
 // ---- パスキーの管理 (自分のアカウント) ----
 export function listPasskeys(store, actor) {
   return passkeysOf(store, actor.id).map(({ credential_id, name, created_at, last_used_at }) => ({ credential_id, name, created_at, last_used_at }));
@@ -203,12 +276,14 @@ function manageable(store, actor, targetId) {
 export function listAdmins(store, actor) {
   if (actor.role === ROLES.STAFF) throw new Forbidden('権限がありません');
   return store.select('admins', (a) => actor.role === ROLES.OPERATOR || a.tenant_id === actor.tenantId)
-    .map(({ admin_id, tenant_id, email, role, enabled, totp_enabled }) => ({ admin_id, tenant_id, email, role, enabled, totp_enabled: !!totp_enabled || passkeysOf(store, admin_id).length > 0 }));
+    .map(({ admin_id, tenant_id, email, role, enabled, totp_enabled }) => ({ admin_id, tenant_id, email, role, enabled, totp_enabled: !!totp_enabled || passkeysOf(store, admin_id).length > 0 || !!store.find('admins', (x) => x.admin_id === admin_id)?.line_user_id }));
 }
 export function resetTwoFactor(store, actor, targetId) {
   const t = manageable(store, actor, targetId);
   store.update('admins', (x) => x.admin_id === t.admin_id, { totp_secret: '', totp_pending: '', totp_enabled: false, recovery_codes: [] });
   store.remove('passkeys', (k) => k.admin_id === t.admin_id);
+  store.update('admins', (x) => x.admin_id === t.admin_id, { line_user_id: '', line_linked_at: '' });
+  lineCodes.delete(t.admin_id);
   bumpEpoch(store, t);
   audit(store, { tenant_id: t.tenant_id, actor, action: 'ADMIN_2FA_RESET', target: t.admin_id });
 }

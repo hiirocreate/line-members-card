@@ -287,7 +287,7 @@ let scanStop = () => {};
 async function scanView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   const status = el('div', { style: 'font-size:16px;min-height:24px;margin:8px 0' }), video = el('video', { playsInline: true, muted: true, style: 'width:100%;max-width:420px;border-radius:10px;background:#000;display:none' });
-  const list = el('div'), manual = el('input', { type: 'text', placeholder: '会員証のQRコードの文字列(読み取れない場合)' });
+  const list = el('div'), manual = el('input', { type: 'text', placeholder: '会員番号 (例: 000001)' });
   const loadList = async () => {
     const { visits } = await api('/visits');
     list.replaceChildren(el('table', {}, el('tr', {}, ['日時', '会員番号', '氏名', '方法'].map((h) => el('th', {}, h))),
@@ -320,7 +320,19 @@ async function scanView() {
   });
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '会員証QRで来店を記録'), el('div', { className: 'hint' }, '会員がミニアプリの会員証を開き、表示されたQRコードを読み取ります。QRは5分で期限切れになり、1回しか使えません。同じ会員の連続記録は30分間抑止されます。'),
     status, video, el('div', { className: 'row', style: 'margin-top:8px' }, btn('カメラを起動', start, 'pri'), btn('停止', () => scanStop()))),
-    el('div', { className: 'card' }, el('h2', {}, '文字列で入力'), el('div', { className: 'row' }, manual, btn('記録', () => manual.value && submit(manual.value.trim().replace(/\s+/g, '')).then(() => { manual.value = ''; })))),
+    el('div', { className: 'card' }, el('h2', {}, '会員番号で記録(カメラが使えないとき)'), el('div', { className: 'hint' }, '会員証の画面に表示されている会員番号を入力します(QRの確認なしの手動記録のため、本人確認は店頭で行ってください)。QRの文字列(MC1.…)を貼り付けても記録できます。'),
+      el('div', { className: 'row', style: 'margin-top:8px' }, manual, btn('記録', run(status, async () => {
+        const v = manual.value.trim().replace(/\s+/g, '');
+        if (!v) return;
+        if (v.startsWith('MC1.')) await submit(v);
+        else {
+          const r = await api('/members/search', { method: 'POST', body: { where: { logic: 'AND', conditions: [{ field: 'member_number', op: 'eq', value: v }] }, limit: 2 } });
+          if (r.members.length !== 1) throw new Error('その会員番号の有効な会員が見つかりません');
+          const m = r.members[0]; const res = await api(`/members/${m.member_id}/visit`, { method: 'POST' });
+          status.className = 'ok'; status.textContent = `✓ 会員 ${m.member_number} の来店を記録しました(手動)`; await loadList();
+        }
+        manual.value = '';
+      })))),
     el('div', { className: 'card' }, el('h2', {}, '最近の来店'), list)));
   loadList();
 }

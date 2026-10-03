@@ -4,7 +4,7 @@
 import { el, buildForm } from './formkit.js';
 
 const root = document.getElementById('root');
-let T, form, shop, qrTimer;
+let T, form, shop, qrTimer, meTimer;
 
 const mem = { // 無効環境(プライベートモード等)でも動くように try/catch
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -52,6 +52,11 @@ function openLine(url) {
 }
 
 // ---- 会員証 ----
+// 日時は日本時間で表示 (サーバはUTCのISO文字列で保持)
+const fmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+const fmtDate = (iso) => (iso && !Number.isNaN(Date.parse(iso)) ? fmt.format(new Date(iso)) : null);
+const visitText = (me) => (me.last_visit_at ? `最終来店: ${fmtDate(me.last_visit_at)}(来店 ${me.visit_count}回)` : '最終来店: まだ来店記録がありません');
+
 async function drawQr(box) {
   try {
     const { code, expiresAt } = await api('qr');
@@ -63,13 +68,21 @@ async function drawQr(box) {
 }
 
 function showCard(me) {
-  clearTimeout(qrTimer);
+  clearTimeout(qrTimer); clearInterval(meTimer);
   root.replaceChildren(el('h1', {}, me.shop));
   const qr = el('div', { id: 'qr' });
-  root.append(el('div', { className: 'card', style: 'text-align:center' }, el('div', {}, '会員番号'), el('h2', {}, me.member_number), qr,
+  const visit = el('div', { id: 'visit', style: 'margin:8px 0;font-weight:bold' }, visitText(me));
+  root.append(el('div', { className: 'card', style: 'text-align:center' }, el('div', {}, '会員番号'), el('h2', {}, me.member_number), visit, qr,
     el('small', {}, '来店時にこの画面を店舗スタッフにお見せください(QRは自動で更新されます)')));
+  // 店舗で来店が記録されたら、開いたままでも最終来店が更新される (表示中のみ20秒ごとに確認)
+  clearInterval(meTimer);
+  meTimer = setInterval(async () => { if (document.hidden) return; try { visit.textContent = visitText(await api('me')); } catch { /* 一時的な失敗は無視 */ } }, 20_000);
   if (window.QRCode) drawQr(qr); else qr.append(el('div', { className: 'err' }, 'QRコードを表示できません'));
-  document.onvisibilitychange = () => { if (!document.hidden && window.QRCode) drawQr(qr); }; // アプリに戻ったら最新に更新
+  document.onvisibilitychange = async () => { // アプリに戻ったら最新に更新
+    if (document.hidden) return;
+    if (window.QRCode) drawQr(qr);
+    try { visit.textContent = visitText(await api('me')); } catch { /* 無視 */ }
+  };
   if (me.shopcardUrl) root.append(el('button', { onclick: () => openLine(me.shopcardUrl) }, '公式LINEのショップカードを開く'));
   if (me.notice) root.append(el('div', { className: 'card notice' }, me.notice));
   const dl = el('dl');
@@ -99,7 +112,7 @@ function showWithdraw(me) {
     el('button', { className: 'sub', onclick: () => showCard(me) }, 'キャンセル'));
 }
 function showWithdrawn() {
-  clearTimeout(qrTimer);
+  clearTimeout(qrTimer); clearInterval(meTimer);
   root.replaceChildren(el('h1', {}, shop), el('div', { className: 'card' }, el('p', {}, '退会済みです。'), el('p', {}, 'もう一度ご利用になる場合は、再登録してください。')),
     el('button', { onclick: showRegister }, '再登録する'));
 }

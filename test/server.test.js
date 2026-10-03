@@ -217,3 +217,18 @@ test('管理API: 来店QRスキャン・退会/復帰・2FA・再設定リンク
     assert.equal((await call('/api/admin/banned-terms', { token: A })).status, 403);
   } finally { srv.closeAllConnections(); srv.close(); }
 });
+
+test('会員API: /me に最終来店・来店回数・登録日が含まれる', async () => {
+  const { app, tokenA } = setup();
+  app.forms.applyTemplate(ADMIN_A, 'SHOP001', 'basic');
+  const { srv, call } = await boot(app);
+  try {
+    const [n, p] = (await call(`/t/${tokenA}/form`)).json.fields.map((f) => f.field_id);
+    await call(`/t/${tokenA}/register`, { method: 'POST', token: 'line:U1', body: { confirmed: true, values: { [n]: '山田', [p]: '09011112222' } } });
+    let me = (await call(`/t/${tokenA}/me`, { token: 'line:U1' })).json;
+    assert.equal(me.last_visit_at, null); assert.equal(me.visit_count, 0); assert.ok(me.registered_at);
+    app.members.recordVisit(ADMIN_A, 'SHOP001', 'M001');
+    me = (await call(`/t/${tokenA}/me`, { token: 'line:U1' })).json;
+    assert.equal(me.visit_count, 1); assert.ok(Date.parse(me.last_visit_at) > Date.now() - 60_000);
+  } finally { srv.closeAllConnections(); srv.close(); }
+});

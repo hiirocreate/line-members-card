@@ -61,7 +61,8 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         if (!member) return send(res, 200, { registered: false, shop });
         if (member.status === 'WITHDRAWN') return send(res, 200, { registered: false, withdrawn: true, shop });
         const p = app.members.profile(null, tenantId, member.member_id);
-        return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
+        return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
+          last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));

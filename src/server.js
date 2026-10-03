@@ -17,7 +17,7 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const JS = 'text/javascript; charset=utf-8';
 const STATIC = { '/app': ['app.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/formkit.js': ['formkit.js', JS],
   '/admin': ['admin.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', JS], '/admin.css': ['admin.css', 'text/css; charset=utf-8'],
-  '/vendor/qrcode.min.js': ['vendor/qrcode.min.js', JS], '/vendor/jsQR.js': ['vendor/jsQR.js', JS] };
+  '/cardkit.js': ['cardkit.js', JS], '/vendor/qrcode.min.js': ['vendor/qrcode.min.js', JS], '/vendor/jsQR.js': ['vendor/jsQR.js', JS] };
 const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.net; style-src 'self' 'unsafe-inline'; " +
@@ -42,19 +42,24 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     res.writeHead(code, { 'content-type': type, 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'cache-control': 'no-store', ...extra });
     res.end(type.startsWith('application/json') ? JSON.stringify(body) : body);
   });
-  const readBody = async (req) => {
-    let raw = ''; for await (const c of req) { raw += c; if (raw.length > 200_000) throw new ValidationError('リクエストが大きすぎます'); }
+  const readBody = async (req, max = 200_000) => {
+    let raw = ''; for await (const c of req) { raw += c; if (raw.length > max) throw new ValidationError('リクエストが大きすぎます'); }
     try { return raw ? JSON.parse(raw) : {}; } catch { throw new ValidationError('JSONが不正です'); }
   };
   const bearer = (req) => /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
 
-  async function publicApi(req, res, url, tenantToken, rest) {
+  async function publicApi(req, res, url, tenantToken, rest, arg) {
     const tenantId = app.forms.resolveTenant(tenantToken);
     const form = app.forms.getUserForm(tenantId);
     const shop = app.store.find('tenants', (t) => t.tenant_id === tenantId).name;
     const strip = ({ tenant_id, ...f }) => f;
     const line = resolveLine(app.store, app.vault, tenantId, defaults);
     if (req.method === 'GET' && !rest) return send(res, 200, renderForm({ shopName: shop, fields: form.fields }), 'text/html; charset=utf-8', { 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'" });
+    if (req.method === 'GET' && rest === 'asset' && arg) { // 会員証の画像 (IDは推測不能・内容は不変なので長期キャッシュ)
+      const a = app.card.getAsset(tenantId, arg);
+      if (!a) return send(res, 404, { error: 'not found' });
+      return send(res, 200, a.buffer, a.mime, { 'cache-control': 'public, max-age=31536000, immutable', 'content-security-policy': "default-src 'none'" });
+    }
     if (req.method === 'GET' && rest === 'form') return send(res, 200, { shop, version: form.version, fields: form.fields.map(strip) });
     if (req.method === 'POST' && rest === 'confirm') return send(res, 200, app.members.confirmRegistration(tenantId, (await readBody(req)).values ?? {}));
     if (['register', 'me', 'qr', 'withdraw'].includes(rest)) {
@@ -71,7 +76,8 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         const p = app.members.profile(null, tenantId, member.member_id);
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
-          notice: p.notice, consents: p.consents });
+          notice: p.notice, consents: p.consents,
+          card: app.card.get(tenantId).design, card_data: { name: member.name || '', member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
       if (req.method === 'POST' && rest === 'withdraw') {
@@ -103,7 +109,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     // 店舗管理者/スタッフは自分の tenant_id に固定。運営のみ ?tenant= で対象店舗を指定できる。
     const tenant = isOp ? url.searchParams.get('tenant') : actor.tenantId;
     const needTenant = () => { if (!tenant) throw new ValidationError('tenant を指定してください'); return tenant; };
-    const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await readBody(req) : {};
+    const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await readBody(req, path === '/card/assets' ? 700_000 : 200_000) : {};
     const f = app.forms, mm = app.members;
     let m;
     const ok = (obj = { ok: true }, code = 200) => send(res, code, obj);
@@ -165,6 +171,17 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
       app.store.update('tenant_urls', (u) => u.token === m[1] && u.tenant_id === needTenant(), { enabled: false }); return ok();
     }
 
+    // 会員証デザイン (カード面・会員画面のテーマ・画像)
+    if (path === '/card' && req.method === 'GET') { require_(actor, 'CARD_DESIGN', needTenant()); return ok({ ...app.card.get(tenant), assets: app.card.assets(tenant), tenantName: app.store.find('tenants', (x) => x.tenant_id === tenant)?.name ?? '' }); }
+    if (path === '/card' && req.method === 'PUT') return ok(app.card.save(actor, needTenant(), body.design));
+    if (path === '/card/assets' && req.method === 'POST') return ok(app.card.addAsset(actor, needTenant(), body), 201);
+    if ((m = /^\/card\/assets\/([0-9a-f]{32})$/.exec(path)) && req.method === 'GET') {
+      require_(actor, 'CARD_DESIGN', needTenant());
+      const a = app.card.getAsset(tenant, m[1]);
+      return a ? send(res, 200, a.buffer, a.mime, { 'content-security-policy': "default-src 'none'" }) : send(res, 404, { error: 'not found' });
+    }
+    if ((m = /^\/card\/assets\/([0-9a-f]{32})$/.exec(path)) && req.method === 'DELETE') { app.card.deleteAsset(actor, needTenant(), m[1]); return ok(); }
+
     // LINE連携設定 (店舗ごと。秘密は書き込み専用)
     if (path === '/line-settings' && req.method === 'GET') { require_(actor, 'LINE_SETTINGS', needTenant()); return ok(publicLine(app.store, app.vault, tenant, defaults)); }
     if (path === '/line-settings' && req.method === 'PUT') { setLine(app.store, app.vault, actor, needTenant(), body); return ok(publicLine(app.store, app.vault, tenant, defaults)); }
@@ -211,7 +228,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
       return send(res, 200, await readFile(PUBLIC_DIR + file), type, { 'content-security-policy': p.startsWith('/admin') ? ADMIN_CSP : APP_CSP });
     }
     let m;
-    if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+))?$/.exec(p))) await publicApi(req, res, url, m[1], m[2]);
+    if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+)(?:\/([0-9a-f]{32}))?)?$/.exec(p))) await publicApi(req, res, url, m[1], m[2], m[3]);
     else if (p.startsWith('/api/admin/')) await adminApi(req, res, url, p.slice('/api/admin'.length));
     else return send(res, 404, { error: 'not found' });
     if (req.method !== 'GET') await app.store.flush?.(); // Sheets への書き込み完了後に応答

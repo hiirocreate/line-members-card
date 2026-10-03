@@ -5,6 +5,7 @@ import { FormService } from './forms.js';
 import { MemberService } from './members.js';
 import { createVault } from './vault.js';
 import { MessagingService } from './messaging.js';
+import { CardService } from './card.js';
 
 // secret: 署名/暗号化鍵の元 (本番は SESSION_SECRET)。未指定なら起動ごとのランダム値 (開発・テスト用)。
 export function createApp(fileOrStore = null, { secret = randomBytes(32).toString('hex'), dataKey = null, fetchImpl = fetch } = {}) {
@@ -13,5 +14,5 @@ export function createApp(fileOrStore = null, { secret = randomBytes(32).toStrin
   const vault = createVault(secret, dataKey);
   const forms = new FormService(store);
   const members = new MemberService(store, forms, vault);
-  return { store, vault, forms, members, messaging: new MessagingService(store, vault, members, fetchImpl), fetchImpl };
+  return { store, vault, forms, members, card: new CardService(store), messaging: new MessagingService(store, vault, members, fetchImpl), fetchImpl };
 }

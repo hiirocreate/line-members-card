@@ -1,5 +1,6 @@
 // 管理画面 (SPA)。DOM は textContent / プロパティ代入のみで組み立て、HTML文字列は使わない。
 import { el, buildForm, collect, control } from './formkit.js';
+import { PRESETS, drawCard, loadImage, makeQr, contrast, applyPage, CARD_W, CARD_H } from './cardkit.js';
 
 const root = document.getElementById('root');
 const TYPES = { TEXT: '1行テキスト', TEXTAREA: '複数行テキスト', NUMBER: '数値', DATE: '日付', TEL: '電話番号', EMAIL: 'メールアドレス', ZIP: '郵便番号', URL: 'URL',
@@ -87,9 +88,9 @@ function resetView(token) {
 }
 
 // ---------- 共通レイアウト ----------
-const TABS = [['form', '会員登録フォーム'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
+const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
-  const tabs = [...TABS.filter(([k]) => (k === 'messages' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
+  const tabs = [...TABS.filter(([k]) => (k === 'messages' ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' ? can('CARD_DESIGN') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));
   if (ST.me.role === 'OPERATOR') {
     const sel = el('select', { style: 'width:auto', onchange: () => { ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
@@ -187,6 +188,126 @@ function fieldDialog(f) {
     el('label', { className: 'lb' }, required, ' 必須'), el('label', { className: 'lb' }, editable, ' ユーザー自身が変更できる'), err,
     el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+
+// ---------- 会員証デザイン ----------
+// 画像は端末側で縮小・圧縮してからアップロードする (サーバ上限 400KB)。
+async function compressImage(file, { maxSide, types }) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    for (const type of types) for (const q of [0.9, 0.8, 0.7, 0.55, 0.4]) {
+      const blob = await new Promise((r) => c.toBlob(r, type, q));
+      if (blob && blob.type === type && blob.size <= 380_000) return blob;
+      if (type === 'image/png' && blob && blob.type === type) break; // PNGは品質指定が効かないので1回だけ
+    }
+    throw new Error('画像が大きすぎます。解像度の低い画像を選んでください');
+  } finally { URL.revokeObjectURL(url); }
+}
+const blobToBase64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(new Error('画像を読み込めません')); r.readAsDataURL(blob); });
+
+async function cardView() {
+  if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
+  await loadScript('/vendor/qrcode.min.js');
+  const server = await api('/card');
+  let design = structuredClone(server.design), dirty = false;
+  const images = {}; // assetId -> Image (管理画面のプレビュー用)
+  const getImage = async (id) => { if (!id) return null; if (!images[id]) { try { images[id] = await loadImage(URL.createObjectURL(await api(`/card/assets/${id}`, { blob: true }))); } catch { images[id] = null; } } return images[id]; };
+  const sample = { shop: server.tenantName, name: '山田 太郎', memberNumber: '000123', registeredAt: '2026-04-01T00:00:00Z', lastVisitAt: new Date().toISOString(), visitCount: 12 };
+  const qr = makeQr('PREVIEW-SAMPLE', 190);
+  const canvas = el('canvas', { className: 'card-canvas', style: 'width:100%;height:auto;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.25))' });
+  const phone = el('div', { className: 'phone' });
+  const err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' }), state = el('span', { className: 'hint' }, '');
+
+  const redraw = async () => {
+    const [logo, bg] = await Promise.all([getImage(design.logo.imageId), getImage(design.background.imageId)]);
+    drawCard(canvas, design, sample, { logo, bg, qr: design.qr === 'inside' ? qr : null });
+    // 会員画面の見た目 (背景色・ボタン色・メッセージ)
+    const pg = design.page, text = contrast(pg.backgroundColor);
+    Object.assign(phone.style, { background: pg.backgroundColor, color: text });
+    const btnStyle = `width:100%;padding:10px;margin-top:8px;border:0;border-radius:8px;background:${pg.accentColor};color:${contrast(pg.accentColor)}`;
+    const qrBlock = design.qr === 'below' ? el('div', { style: 'background:#fff;padding:10px;border-radius:10px;margin:10px auto;width:140px;height:140px;display:flex;align-items:center;justify-content:center;color:#666;font-size:12px' }, 'QRコード') : null;
+    phone.replaceChildren(...[el('div', { style: 'font-weight:700;margin-bottom:6px' }, server.tenantName), canvas,
+      el('div', { style: 'text-align:center;font-weight:700;font-size:12px;margin:8px 0' }, '最終来店: 2026/10/03 12:00(来店 12回)'), qrBlock,
+      pg.welcomeText ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px;white-space:pre-wrap;text-align:center` }, pg.welcomeText) : null,
+      el('button', { type: 'button', style: 'width:100%;padding:10px;margin-top:8px;border:0;border-radius:8px;background:#888;color:#fff' }, 'カード画像を保存'),
+      pg.showShopcard ? el('button', { type: 'button', style: btnStyle }, '公式LINEのショップカードを開く') : null,
+      pg.showInfoList ? el('div', { style: `background:${text === '#ffffff' ? '#1e1e22' : '#fff'};border-radius:10px;padding:10px;margin-top:8px;font-size:13px` }, el('b', {}, '氏名'), el('div', {}, '山田 太郎'), el('b', {}, '電話番号'), el('div', {}, '090XXXXXXXX')) : null].filter(Boolean)); // replaceChildren は null を文字列にしてしまうため除外
+  };
+  const touch = (custom = true) => { if (custom) design.template = 'custom'; dirty = true; state.textContent = '未保存の変更があります'; ok.textContent = ''; redraw(); };
+
+  // ---- 入力部品 ----
+  const bindColor = (get, set) => { const i = el('input', { type: 'color', value: get(), oninput: () => { set(i.value); touch(); } }); return i; };
+  const bindSelect = (opts, get, set) => { const s = el('select', { onchange: () => { set(s.value); touch(); redraw(); drawControls(); } }, opts.map(([v, t]) => el('option', { value: v, selected: v === get() }, t))); return s; };
+  const bindCheck = (text, get, set) => { const i = el('input', { type: 'checkbox', checked: get(), onchange: () => { set(i.checked); touch(); } }); return el('label', { className: 'lb', style: 'font-weight:400' }, i, ` ${text}`); };
+  const bindText = (get, set, ph, max) => { const i = el('input', { type: 'text', value: get(), placeholder: ph ?? '', maxLength: max, oninput: () => { set(i.value); touch(); } }); return i; };
+  const bindRange = (min, max, step, get, set, unit = '') => { const lab2 = el('span', { className: 'hint' }, ` ${get()}${unit}`); const i = el('input', { type: 'range', min, max, step, value: get(), oninput: () => { set(Number(i.value)); lab2.textContent = ` ${i.value}${unit}`; touch(); } }); return el('div', {}, i, lab2); };
+
+  // 画像のアップロード (kind: logo | background)
+  const uploadBox = (kind, get, set) => {
+    const file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', style: 'display:none' });
+    const note = el('span', { className: 'hint' }, get() ? 'アップロード済み' : '未設定');
+    file.onchange = run(err, async () => {
+      const f = file.files[0]; if (!f) return; err.textContent = ''; note.textContent = '処理中...';
+      const blob = await compressImage(f, kind === 'logo' ? { maxSide: 600, types: ['image/webp', 'image/png'] } : { maxSide: 1400, types: ['image/jpeg'] });
+      const r = await api('/card/assets', { method: 'POST', body: { kind, mime: blob.type, data: await blobToBase64(blob) } });
+      images[r.id] = await loadImage(URL.createObjectURL(blob));
+      set(r.id); note.textContent = `アップロード済み(${Math.round(blob.size / 1000)}KB)`; touch(); drawControls();
+    });
+    return el('div', { className: 'row' }, btn(get() ? '画像を変更' : '画像を選ぶ', () => file.click()), get() ? btn('画像を外す', () => { set(null); touch(); drawControls(); }, 'sm') : null, note, file);
+  };
+
+  const controls = el('div');
+  function drawControls() {
+    const bg = design.background;
+    const sec = (title, ...kids) => el('div', { style: 'margin-bottom:18px' }, el('h2', { style: 'margin-top:0' }, title), ...kids);
+    controls.replaceChildren(
+      sec('テンプレート', el('div', { className: 'row' }, Object.entries(PRESETS).map(([k, p]) => btn(p.label, () => {
+        const d = p.design, pg = { ...design.page, ...d.page };
+        design = { ...design, ...d, background: { ...design.background, ...d.background }, page: pg, template: k };
+        if (k === 'photo' && !design.background.imageId) design.background.type = 'gradient'; // 画像が無い間は色の背景にしておく
+        touch(false); drawControls();
+      }, design.template === k ? 'pri' : ''))), el('div', { className: 'hint' }, 'テンプレートを選んだあと、色や文字を自由に変えられます。')),
+      sec('背景', lab('種類', bindSelect([['solid', '単色'], ['gradient', 'グラデーション'], ['image', '画像']], () => bg.type, (v) => { bg.type = v; })),
+        bg.type !== 'image' ? lab(bg.type === 'solid' ? '色' : '色1', bindColor(() => bg.color1, (v) => { bg.color1 = v; })) : null,
+        bg.type === 'gradient' ? [lab('色2', bindColor(() => bg.color2, (v) => { bg.color2 = v; })), lab('角度', bindRange(0, 360, 15, () => bg.angle, (v) => { bg.angle = v; }, '°'))] : null,
+        bg.type === 'image' ? [lab('背景画像', uploadBox('background', () => bg.imageId, (v) => { bg.imageId = v; }), '横長の画像がおすすめです(自動で縮小されます)。'), lab('暗さ(文字を読みやすくします)', bindRange(0, 80, 5, () => bg.overlay, (v) => { bg.overlay = v; }, '%'))] : null),
+      sec('文字と色', lab('文字の色', bindColor(() => design.textColor, (v) => { design.textColor = v; })), lab('アクセント色(線など)', bindColor(() => design.accentColor, (v) => { design.accentColor = v; })),
+        lab('書体', bindSelect([['sans', 'ゴシック'], ['serif', '明朝']], () => design.font, (v) => { design.font = v; })), lab('カードの角', bindSelect([['large', '丸い'], ['small', '少し丸い'], ['none', '角ばった']], () => design.radius, (v) => { design.radius = v; }))),
+      sec('ロゴ', lab('ロゴ画像', uploadBox('logo', () => design.logo.imageId, (v) => { design.logo.imageId = v; }), '背景が透明なPNGがきれいです(自動で縮小されます)。'),
+        lab('位置', bindSelect([['top-left', '左上'], ['top-center', '中央'], ['top-right', '右上']], () => design.logo.position, (v) => { design.logo.position = v; })),
+        lab('大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => design.logo.size, (v) => { design.logo.size = v; }))),
+      sec('文言', bindCheck('店舗名を表示する', () => design.shopName.show, (v) => { design.shopName.show = v; }),
+        lab('店舗名(空欄なら登録の店舗名)', bindText(() => design.shopName.text, (v) => { design.shopName.text = v; }, server.tenantName, 30)),
+        lab('店舗名の大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => design.shopName.size, (v) => { design.shopName.size = v; })),
+        lab('店舗名の位置', bindSelect([['left', '左'], ['center', '中央']], () => design.shopName.align, (v) => { design.shopName.align = v; })),
+        lab('カードのタイトル', bindText(() => design.title, (v) => { design.title = v; }, 'MEMBER CARD', 24))),
+      sec('カードに表示する項目', el('div', { className: 'hint' }, '会員番号は常に表示されます。'), bindCheck('氏名', () => design.fields.name, (v) => { design.fields.name = v; }), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
+        bindCheck('最終来店日', () => design.fields.lastVisit, (v) => { design.fields.lastVisit = v; }), bindCheck('来店回数', () => design.fields.visitCount, (v) => { design.fields.visitCount = v; }),
+        lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)']], () => design.qr, (v) => { design.qr = v; }), 'カードの中に入れると、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。')),
+      sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; })), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),
+        lab('メッセージ(カードの下に表示)', bindText(() => design.page.welcomeText, (v) => { design.page.welcomeText = v; }, '例: ご来店ありがとうございます', 120)),
+        bindCheck('登録情報の一覧を表示する', () => design.page.showInfoList, (v) => { design.page.showInfoList = v; }), bindCheck('公式LINEのショップカードのボタンを表示する(URLを設定した場合)', () => design.page.showShopcard, (v) => { design.page.showShopcard = v; })),
+    );
+  }
+
+  const save = run(err, async () => {
+    err.textContent = ''; ok.textContent = '';
+    const r = await api('/card', { method: 'PUT', body: { design } });
+    design = r.design; dirty = false; state.textContent = ''; ok.textContent = `保存しました(会員の画面に反映されます / v${r.version})`; drawControls(); redraw();
+  });
+  const reset = () => { if (!confirm('デザインを初期状態に戻します(保存するまで反映されません)。')) return; design = { ...structuredClone(PRESETS.classic.design), template: 'classic', background: { ...PRESETS.classic.design.background, imageId: null }, logo: { imageId: null, position: 'top-left', size: 'M' },
+      shopName: { show: true, text: '', size: 'M', align: 'left' }, title: 'MEMBER CARD', fields: { name: true, registeredAt: false, lastVisit: true, visitCount: true }, qr: 'below', page: { ...PRESETS.classic.design.page, welcomeText: '', showInfoList: true, showShopcard: true } }; touch(false); drawControls(); };
+  const download = () => canvas.toBlob((b) => { const a = el('a', { href: URL.createObjectURL(b), download: 'member-card.png' }); document.body.append(a); a.click(); a.remove(); }, 'image/png');
+
+  drawControls(); await redraw();
+  layout(el('div', { className: 'grid' },
+    el('div', { className: 'card' }, el('h2', {}, '会員証デザイン'), el('div', { className: 'hint', style: 'margin-bottom:12px' }, '右のプレビューを見ながら調整し、「保存」を押すと、会員のスマホの会員証に反映されます。'), controls, err, ok,
+      el('div', { className: 'row', style: 'margin-top:8px' }, btn('保存', save, 'pri'), btn('カード画像をダウンロード', download), btn('初期状態に戻す', reset, 'dng'), state)),
+    el('div', { className: 'card', style: 'position:sticky;top:12px;align-self:start' }, el('h2', {}, 'プレビュー(会員のスマホ画面)'), phone)));
 }
 
 // ---------- 会員 ----------
@@ -503,7 +624,7 @@ async function opsView() {
 }
 
 // ---------- ルーティング ----------
-const VIEWS = { form: formView, members: membersView, scan: scanView, messages: messagesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
+const VIEWS = { form: formView, card: cardView, members: membersView, scan: scanView, messages: messagesView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
 // 描画は1つずつ直列に実行し、実行中に再要求があれば終了後にもう一度だけ描き直す。
 // (画面を素早く切り替えたとき、遅れて終わった前の画面が今の画面を上書きしないようにする)
 let rendering = false, renderAgain = false;

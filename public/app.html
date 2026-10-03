@@ -5,17 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>会員証</title>
 <style>
-body{font-family:sans-serif;margin:0;background:#f4f5f7;color:#222}
+body{font-family:sans-serif;margin:0;background:var(--page-bg,#f4f5f7);color:var(--page-text,#222)}
+.card-canvas{display:block;width:100%;height:auto;filter:drop-shadow(0 6px 14px rgba(0,0,0,.25));margin:8px 0}
 main{max-width:480px;margin:0 auto;padding:16px}
 h1{font-size:20px}
-.card{background:#fff;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.card{background:var(--card-bg,#fff);color:var(--page-text,#222);border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,.1)}
 .f{margin:14px 0}.l{display:block;font-weight:bold}
 input[type=text],input[type=tel],input[type=email],input[type=number],input[type=date],input[type=url],select,textarea{width:100%;padding:10px;box-sizing:border-box;margin-top:4px;font-size:16px}
-label.o{display:block;margin:4px 0}small{color:#666;display:block}
-button{width:100%;padding:14px;margin-top:12px;font-size:16px;border:0;border-radius:8px;background:#06c755;color:#fff}
-button.sub{background:#888}.err{color:#c00}.notice{background:#fff3cd;padding:8px;border-radius:6px}
+label.o{display:block;margin:4px 0}small{opacity:.7;display:block}
+button{width:100%;padding:14px;margin-top:12px;font-size:16px;border:0;border-radius:8px;background:var(--accent,#06c755);color:var(--accent-text,#fff)}
+button.sub{background:#888;color:#fff}.err{color:#c00}.notice{background:#fff3cd;color:#222;padding:8px;border-radius:6px}.welcome{text-align:center;white-space:pre-wrap}.hint{opacity:.7;font-size:13px}
 dl{margin:0}dt{font-weight:bold;margin-top:8px}dd{margin:0}
 #qr{display:flex;justify-content:center;margin:12px 0}
+#qr canvas,#qr img{background:#fff;padding:12px;border-radius:10px} /* 暗い背景でも読み取れるよう白い余白を付ける */
 </style>
 </head>
 <body>

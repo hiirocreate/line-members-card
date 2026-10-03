@@ -2,6 +2,7 @@
 // すべて textContent / value で DOM を組み立て、HTML文字列は使わない(XSS対策)。
 // ログイン: LINEアプリ内では LIFF が自動でログイン済み。LINEのIDトークンでサーバが毎回本人確認し、会員とLINEアカウントを紐づける。
 import { el, buildForm } from './formkit.js';
+import { drawCard, applyPage, loadImage, makeQr } from './cardkit.js';
 
 const root = document.getElementById('root');
 let T, form, shop, qrTimer, meTimer;
@@ -56,41 +57,62 @@ function openLine(url) {
 const fmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const fmtDate = (iso) => (iso && !Number.isNaN(Date.parse(iso)) ? fmt.format(new Date(iso)) : null);
 const visitText = (me) => (me.last_visit_at ? `最終来店: ${fmtDate(me.last_visit_at)}(来店 ${me.visit_count}回)` : '最終来店: まだ来店記録がありません');
+const cardData = (me) => ({ shop: me.shop, name: me.card_data?.name ?? '', memberNumber: me.member_number, registeredAt: me.card_data?.registered_at ?? me.registered_at, lastVisitAt: me.last_visit_at, visitCount: me.visit_count });
+const assetImage = (id) => (id ? loadImage(`/t/${T}/asset/${id}`).catch(() => null) : Promise.resolve(null)); // 画像が読めなくてもカードは表示する
 
-async function drawQr(box) {
-  try {
-    const { code, expiresAt } = await api('qr');
-    box.replaceChildren();
-    new QRCode(box, { text: code, width: 180, height: 180 });
-    clearTimeout(qrTimer);
-    qrTimer = setTimeout(() => drawQr(box), Math.max(10_000, expiresAt - Date.now() - 60_000)); // 期限の1分前に自動更新
-  } catch (e) { box.replaceChildren(el('div', { className: 'err' }, e.message)); }
-}
-
+// 会員証QR: 署名付き・5分有効。期限の1分前に自動更新 (スクリーンショットの使い回し防止)
 function showCard(me) {
   clearTimeout(qrTimer); clearInterval(meTimer);
-  root.replaceChildren(el('h1', {}, me.shop));
-  const qr = el('div', { id: 'qr' });
-  const visit = el('div', { id: 'visit', style: 'margin:8px 0;font-weight:bold' }, visitText(me));
-  root.append(el('div', { className: 'card', style: 'text-align:center' }, el('div', {}, '会員番号'), el('h2', {}, me.member_number), visit, qr,
-    el('small', {}, '来店時にこの画面を店舗スタッフにお見せください(QRは自動で更新されます)')));
-  // 店舗で来店が記録されたら、開いたままでも最終来店が更新される (表示中のみ20秒ごとに確認)
-  clearInterval(meTimer);
-  meTimer = setInterval(async () => { if (document.hidden) return; try { visit.textContent = visitText(await api('me')); } catch { /* 一時的な失敗は無視 */ } }, 20_000);
-  if (window.QRCode) drawQr(qr); else qr.append(el('div', { className: 'err' }, 'QRコードを表示できません'));
-  document.onvisibilitychange = async () => { // アプリに戻ったら最新に更新
-    if (document.hidden) return;
-    if (window.QRCode) drawQr(qr);
-    try { visit.textContent = visitText(await api('me')); } catch { /* 無視 */ }
-  };
-  if (me.shopcardUrl) root.append(el('button', { onclick: () => openLine(me.shopcardUrl) }, '公式LINEのショップカードを開く'));
+  const design = me.card;
+  applyPage(design.page);
+  let cur = me, logo = null, bg = null, qrCanvas = null;
+  const canvas = el('canvas', { className: 'card-canvas', 'aria-label': '会員証' });
+  const qrBox = el('div', { id: 'qr' });
+  const paint = () => drawCard(canvas, design, cardData(cur), { logo, bg, qr: design.qr === 'inside' ? qrCanvas : null });
+  const visit = el('div', { id: 'visit', style: 'margin:10px 0;font-weight:bold;text-align:center' }, visitText(me));
+
+  async function refreshQr() {
+    try {
+      const { code, expiresAt } = await api('qr');
+      if (design.qr === 'inside') { qrCanvas = makeQr(code, 190); paint(); } else { qrBox.replaceChildren(); new QRCode(qrBox, { text: code, width: 180, height: 180 }); }
+      clearTimeout(qrTimer);
+      qrTimer = setTimeout(refreshQr, Math.max(10_000, expiresAt - Date.now() - 60_000));
+    } catch (e) { (design.qr === 'inside' ? visit : qrBox).append(el('div', { className: 'err' }, e.message)); }
+  }
+  const refreshMe = async () => { try { cur = await api('me'); visit.textContent = visitText(cur); paint(); } catch { /* 一時的な失敗は無視 */ } };
+
+  root.replaceChildren(el('h1', {}, me.shop), canvas, visit);
+  if (design.qr === 'below') root.append(el('div', { className: 'card', style: 'text-align:center' }, qrBox));
+  root.append(el('small', { style: 'display:block;text-align:center;margin-bottom:8px' }, '来店時にこの画面を店舗スタッフにお見せください(QRは自動で更新されます)'));
+  paint(); // 画像の読み込み前にも、まず文字だけで描く
+  Promise.all([assetImage(design.logo.imageId), assetImage(design.background.imageId)]).then(([l, b]) => { logo = l; bg = b; paint(); });
+  if (window.QRCode) refreshQr(); else root.append(el('div', { className: 'err' }, 'QRコードを表示できません'));
+  // 店舗で来店が記録されたら、開いたままでも更新される (表示中のみ20秒ごと / アプリに戻ったとき)
+  meTimer = setInterval(() => { if (!document.hidden) refreshMe(); }, 20_000);
+  document.onvisibilitychange = () => { if (!document.hidden) { refreshMe(); if (window.QRCode) refreshQr(); } };
+
+  if (design.page.welcomeText) root.append(el('div', { className: 'card welcome' }, design.page.welcomeText));
+  root.append(el('button', { className: 'sub', onclick: () => showCardImage(cur, design, logo, bg) }, 'カード画像を保存'));
+  if (me.shopcardUrl && design.page.showShopcard) root.append(el('button', { onclick: () => openLine(me.shopcardUrl) }, '公式LINEのショップカードを開く'));
   if (me.notice) root.append(el('div', { className: 'card notice' }, me.notice));
-  const dl = el('dl');
-  for (const i of me.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value));
-  root.append(el('div', { className: 'card' }, dl));
+  if (design.page.showInfoList) {
+    const dl = el('dl');
+    for (const i of me.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value));
+    root.append(el('div', { className: 'card' }, dl));
+  }
   const editable = form.fields.filter((f) => f.user_editable);
   if (editable.length) root.append(el('button', { className: 'sub', onclick: () => showEdit(me, editable) }, '登録情報を変更する'));
-  root.append(el('button', { className: 'sub', style: 'background:#fff;color:#c00;border:1px solid #c00', onclick: () => showWithdraw(me) }, '退会する'));
+  root.append(el('button', { className: 'sub', style: 'background:transparent;color:#c00;border:1px solid #c00', onclick: () => showWithdraw(me) }, '退会する'));
+}
+
+// カードを画像として表示 (LINE内ブラウザは直接ダウンロードできないことがあるため、長押しで保存してもらう)
+// 保存用の画像にはQRを含めない (QRは5分で失効するため)
+function showCardImage(me, design, logo, bg) {
+  const c = document.createElement('canvas');
+  drawCard(c, { ...design, qr: 'below' }, cardData(me), { logo, bg });
+  const img = el('img', { src: c.toDataURL('image/png'), alt: '会員証', style: 'width:100%;border-radius:12px' });
+  root.replaceChildren(el('h1', {}, '会員証の画像'), img, el('p', { className: 'hint' }, '画像を長押しして「写真に追加」などで保存できます。'),
+    el('button', { className: 'sub', onclick: () => showCard(me) }, '戻る'));
 }
 
 function showEdit(me, editable) {

@@ -1,5 +1,7 @@
 // Google Sheets 永続化ストア。全テーブルをメモリに保持し、変更したシートだけ書き戻す。
-// 認証はサービスアカウント(JWT)。シートはサービスアカウントにのみ共有する (店舗には共有しない)。
+// 認証は2通り (どちらもシートはサービスアカウントにのみ共有する。店舗には共有しない):
+//  - キーレス(推奨): Cloud Run の実行用サービスアカウント自身の権限でトークンを発行 (JSONキー不要)
+//  - JSONキー: serviceAccount を渡した場合のみ
 // 制約: 単一インスタンス運用前提 (Cloud Run max-instances=1)。
 import { createSign } from 'node:crypto';
 import { Store, SHEETS } from './store.js';
@@ -8,14 +10,31 @@ const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const b64 = (x) => Buffer.from(typeof x === 'string' ? x : JSON.stringify(x)).toString('base64url');
 
 export class SheetsStore extends Store {
-  constructor({ spreadsheetId, serviceAccount, fetchImpl = fetch, tokenUrl = 'https://oauth2.googleapis.com/token' }) {
+  constructor({ spreadsheetId, serviceAccount = null, fetchImpl = fetch, tokenUrl = 'https://oauth2.googleapis.com/token',
+    metadataUrl = 'http://metadata.google.internal', iamUrl = 'https://iamcredentials.googleapis.com' }) {
     super(null);
-    Object.assign(this, { spreadsheetId, sa: serviceAccount, fetch: fetchImpl, tokenUrl });
+    Object.assign(this, { spreadsheetId, sa: serviceAccount, fetch: fetchImpl, tokenUrl, metadataUrl, iamUrl });
     this.dirty = new Set(); this.chain = Promise.resolve(); this.token = null;
   }
 
+  // キーレス: メタデータサーバー(実行用アカウント)→ IAM Credentials で Sheets 用スコープのトークンを自分自身に発行。
+  // 実行用アカウントに「サービスアカウント トークン作成者」(自分自身に対して) が必要。
+  async #keylessToken() {
+    const md = { headers: { 'metadata-flavor': 'Google' } };
+    const [e, t] = await Promise.all([this.fetch(`${this.metadataUrl}/computeMetadata/v1/instance/service-accounts/default/email`, md),
+      this.fetch(`${this.metadataUrl}/computeMetadata/v1/instance/service-accounts/default/token`, md)]);
+    if (!e.ok || !t.ok) throw new Error('メタデータサーバーからサービスアカウントを取得できません (Cloud Run 上で実行していますか?)');
+    const email = (await e.text()).trim(), base = (await t.json()).access_token;
+    const r = await this.fetch(`${this.iamUrl}/v1/projects/-/serviceAccounts/${encodeURIComponent(email)}:generateAccessToken`, { method: 'POST',
+      headers: { authorization: `Bearer ${base}`, 'content-type': 'application/json' }, body: JSON.stringify({ scope: ['https://www.googleapis.com/auth/spreadsheets'], lifetime: '3600s' }) });
+    if (!r.ok) throw new Error(`アクセストークンの発行に失敗 (${r.status}): 「サービスアカウント トークン作成者」ロールを ${email} 自身に付与してください`);
+    const j = await r.json();
+    this.token = { value: j.accessToken, exp: Date.parse(j.expireTime) || Date.now() + 3_000_000 };
+    return this.token.value;
+  }
   async #accessToken() {
     if (this.token && this.token.exp > Date.now() + 60_000) return this.token.value;
+    if (!this.sa) return this.#keylessToken();
     const iat = Math.floor(Date.now() / 1000);
     const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: this.sa.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets', aud: this.tokenUrl, iat, exp: iat + 3600 })}`;
     const sig = createSign('RSA-SHA256').update(unsigned).sign(this.sa.private_key, 'base64url');

@@ -82,3 +82,39 @@ test('SheetsStore: 旧バージョンの列構成のシートでも既存デー�
   assert.equal(rewritten[1][rewritten[0].indexOf('name')], '山田'); // 行は失われない
   assert.equal(rewritten[1][rewritten[0].indexOf('status')], 'ACTIVE');
 });
+
+test('SheetsStore: キーレス認証(メタデータ→IAM Credentials)でJSONキーなしに読み書きできる', async () => {
+  const g = fakeGoogle(); const seen = [];
+  const fetchImpl = async (url, init = {}) => {
+    url = String(url);
+    if (url.startsWith('http://metadata.example')) {
+      assert.equal(init.headers['metadata-flavor'], 'Google'); seen.push('metadata');
+      return url.endsWith('/email') ? new Response('sheets-writer@proj.iam.gserviceaccount.com') : new Response(JSON.stringify({ access_token: 'meta-token' }), { status: 200 });
+    }
+    if (url.startsWith('https://iam.example')) {
+      seen.push('iam');
+      assert.equal(init.headers.authorization, 'Bearer meta-token');
+      assert.match(url, /serviceAccounts\/sheets-writer%40proj\.iam\.gserviceaccount\.com:generateAccessToken$/);
+      assert.deepEqual(JSON.parse(init.body).scope, ['https://www.googleapis.com/auth/spreadsheets']);
+      return new Response(JSON.stringify({ accessToken: 't', expireTime: new Date(Date.now() + 3600_000).toISOString() }), { status: 200 });
+    }
+    return g.fetchImpl(url, init); // Sheets API (Bearer t を検証)
+  };
+  const s = new SheetsStore({ spreadsheetId: 'SID', fetchImpl, metadataUrl: 'http://metadata.example', iamUrl: 'https://iam.example' });
+  await s.init();
+  s.insert('settings', { key: 'k', value: 'v' }); await s.flush();
+  assert.deepEqual(g.sheets.get('settings')[1], ['k', '"v"']);
+  assert.equal(seen.filter((x) => x === 'iam').length, 1); // トークンはキャッシュされる
+  assert.equal(g.authCalls, 0); // JWT(JSONキー)方式は使っていない
+});
+
+test('SheetsStore: キーレスで権限不足なら、付与すべきロールを案内するエラーになる', async () => {
+  const fetchImpl = async (url) => {
+    url = String(url);
+    if (url.includes('/email')) return new Response('sa@proj.iam.gserviceaccount.com');
+    if (url.includes('metadata')) return new Response(JSON.stringify({ access_token: 'x' }));
+    return new Response('forbidden', { status: 403 });
+  };
+  const s = new SheetsStore({ spreadsheetId: 'SID', fetchImpl, metadataUrl: 'http://metadata.example', iamUrl: 'https://iam.example' });
+  await assert.rejects(s.init(), /トークン作成者/);
+});

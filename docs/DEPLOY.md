@@ -1,10 +1,15 @@
 # デプロイ手順 (Cloud Run + Google Sheets + LINEミニアプリ)
 
-## 1. Google Sheets (運営者のみ)
+## 1. Google Sheets (運営者のみ) — JSONキー不要の方式
 1. 新しいスプレッドシートを作成 (シートは起動時に自動作成される)。URLの `/d/<ID>/` が `SPREADSHEET_ID`。
-2. GCP でサービスアカウントを作成し JSON キーを発行。Sheets API を有効化。
-3. スプレッドシートを **サービスアカウントのメールにのみ「編集者」で共有**。店舗・スタッフには共有しない (店舗は管理画面経由でのみ閲覧)。
-4. JSON キーは Secret Manager に保存し、Cloud Run のシークレットとして `GOOGLE_SERVICE_ACCOUNT_JSON` に渡す。
+2. GCP で Sheets API / Cloud Run Admin API / Cloud Build API / Artifact Registry API / Secret Manager API を有効化。
+3. サービスアカウント(例 `sheets-writer`)を作成する。**キーは作らない**(組織ポリシーでキー作成が禁止されていても問題なし)。
+4. このサービスアカウントに次のロールを付与 (IAM):
+   - 「Secret Manager のシークレット アクセサー」(プロジェクト)
+   - 「サービスアカウント トークン作成者」(**このサービスアカウント自身**に対して。サービスアカウントの権限タブ→「アクセスを許可」→プリンシパルに自分自身のメールを指定)
+5. スプレッドシートを **このサービスアカウントのメールにのみ「編集者」で共有**。店舗・スタッフには共有しない (店舗は管理画面経由でのみ閲覧)。
+6. デプロイ時に `--service-account sheets-writer@<プロジェクトID>.iam.gserviceaccount.com` を指定して、Cloud Run の実行アカウントにする。
+(従来どおり JSON キーを使う場合は、キーを Secret Manager に保存して `GOOGLE_SERVICE_ACCOUNT_JSON` に渡す。未設定ならキーレスで動く。)
 
 ## 2. LINE
 1. LINE Developers で「LINEログイン」チャネルを作成 → **チャネルID** = `LINE_LOGIN_CHANNEL_ID`。
@@ -16,9 +21,10 @@
 ## 3. Cloud Run
 ```
 gcloud run deploy line-members --source . --region asia-northeast1 \
+  --service-account sheets-writer@<プロジェクトID>.iam.gserviceaccount.com \
   --max-instances 1 --allow-unauthenticated \
   --set-env-vars LINE_LOGIN_CHANNEL_ID=...,LIFF_ID=...,SPREADSHEET_ID=...,OPERATOR_EMAIL=you@example.com \
-  --set-secrets SESSION_SECRET=session-secret:latest,DATA_ENCRYPTION_KEY=data-key:latest,GOOGLE_SERVICE_ACCOUNT_JSON=sa-key:latest,OPERATOR_PASSWORD=operator-password:latest
+  --set-secrets SESSION_SECRET=session-secret:latest,DATA_ENCRYPTION_KEY=data-key:latest,OPERATOR_PASSWORD=operator-password:latest
 ```
 - `--max-instances 1` は必須 (Sheets へ全シート書き戻しのため、複数インスタンスだと上書きし合う)。
 - `SESSION_SECRET` は 32 文字以上のランダム文字列。変更すると全員が再ログインになる。

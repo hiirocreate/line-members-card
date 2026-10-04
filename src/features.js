@@ -5,7 +5,7 @@ import { audit } from './audit.js';
 
 export const FEATURES = {
   card: '会員証デザイン', scan: '来店スキャン(来店の記録)', messages: 'メッセージ配信', schedule: '予約メッセージ(定期)', birthday: '誕生日配信',
-  visitrules: '来店回数配信', coupons: 'クーポン', rank: '会員ランク',
+  visitrules: '来店回数配信', coupons: 'クーポン', rank: '会員ランク', qrflip: 'カードの裏面にQR(スワイプで表示)',
 };
 const tenantOf = (store, id) => store.find('tenants', (t) => t.tenant_id === id);
 export const featureOn = (store, tenantId, key) => { const f = tenantOf(store, tenantId)?.features; return !(f && typeof f === 'object' && f[key] === false); };

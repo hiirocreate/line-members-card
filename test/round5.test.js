@@ -112,3 +112,24 @@ test('読み仮名: ひらがな/カタカナ/アルファベットの指定と�
   app.store.update('members', (x) => x.user_id === 'U9', { name: '' });
   assert.notEqual(app.members.cardName(T, app.members.findByUser(T, 'U9')), 'やまだたろう');
 });
+
+test('カードの読み仮名と裏面QR: 設定・読み仮名の取得・運営による機能のON/OFF', async () => {
+  const { normalizeDesign } = await import('../src/card.js');
+  const { setFeatures, featureOn } = await import('../src/features.js');
+  assert.equal(normalizeDesign({}).fields.reading, false); assert.equal(normalizeDesign({ fields: { reading: true }, qr: 'flip' }).fields.reading, true); assert.equal(normalizeDesign({ qr: 'flip' }).qr, 'flip');
+  const { app } = env();
+  // 読み仮名: 氏名の読み仮名が1項目 / 姓・名が別項目
+  const rd = app.forms.addFromMaster(ADMIN_A, T, 'name_reading'), [n, p] = app.forms.fields(T).map((x) => x.field_id);
+  app.members.register(T, 'U1', { [n]: '山田太郎', [p]: '09011112222', [rd.field_id]: 'ヤマダ タロウ' }, { confirmed: true });
+  assert.deepEqual(app.members.cardReading(T, app.members.findByUser(T, 'U1')), { text: 'ヤマダ タロウ' });
+  const app2 = createApp(null, { secret: SECRET }); app2.forms.createTenant(OP, T, 'x');
+  const lr = app2.forms.addFromMaster(OP, T, 'last_name_reading').field_id, fr = app2.forms.addFromMaster(OP, T, 'first_name_reading').field_id;
+  app2.members.register(T, 'U2', { [lr]: 'ヤマダ', [fr]: 'タロウ' }, { confirmed: true });
+  assert.deepEqual(app2.members.cardReading(T, app2.members.findByUser(T, 'U2')), { parts: { family: 'ヤマダ', given: 'タロウ' } });
+  assert.equal(app.members.cardReading(T, { ...app.members.findByUser(T, 'U1'), member_id: 'none' }), null);
+  // 裏面QRの機能: 運営がオフにすると保存できず、会員には「カードの下」で出る
+  assert.equal(featureOn(app.store, T, 'qrflip'), true);
+  app.card.save(ADMIN_A, T, { qr: 'flip' });
+  setFeatures(app.store, OP, T, { qrflip: false }); assert.equal(featureOn(app.store, T, 'qrflip'), false);
+  assert.equal(app.card.get(T).design.qr, 'flip'); // 保存済みの値はそのまま(再度オンにすれば戻る)
+});

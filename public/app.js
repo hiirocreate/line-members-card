@@ -68,7 +68,7 @@ function openLine(url) {
 const fmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const fmtDate = (iso) => (iso && !Number.isNaN(Date.parse(iso)) ? fmt.format(new Date(iso)) : null);
 const visitText = (me) => (me.last_visit_at ? `最終来店: ${fmtDate(me.last_visit_at)}(来店 ${me.visit_count}回)` : '最終来店: まだ来店記録がありません');
-const cardData = (me) => ({ shop: me.shop, name: me.card_data?.name ?? '', nameParts: me.card_data?.parts ?? null, rank: me.rank ?? null, memberNumber: me.member_number, registeredAt: me.card_data?.registered_at ?? me.registered_at, lastVisitAt: me.last_visit_at, visitCount: me.visit_count });
+const cardData = (me) => ({ shop: me.shop, name: me.card_data?.name ?? '', nameParts: me.card_data?.parts ?? null, reading: me.card_data?.reading?.text ?? '', readingParts: me.card_data?.reading?.parts ?? null, rank: me.rank ?? null, memberNumber: me.member_number, registeredAt: me.card_data?.registered_at ?? me.registered_at, lastVisitAt: me.last_visit_at, visitCount: me.visit_count });
 const assetImage = (id) => (id ? loadImage(PREVIEW ? (previewUrls[id] ?? '') : `/t/${T}/asset/${id}`).catch(() => null) : Promise.resolve(null)); // 画像が読めなくてもカードは表示する
 
 // 会員証QR: 署名付き・5分有効。期限の1分前に自動更新 (スクリーンショットの使い回し防止)
@@ -78,7 +78,8 @@ function showCard(me, opts = {}) {
   const design = storeMode ? { ...me.card, qr: 'below' } : me.card;
   applyPage(design.page);
   let cur = me, logo = null, bg = null, qrCanvas = null, privacy = !!opts.privacy; // privacy: 個人情報とQRを隠している状態
-  const canvas = el('canvas', { className: 'card-canvas', 'aria-label': '会員証' });
+  const flip = design.qr === 'flip'; // カードの裏面にQR: スワイプ(またはタップ)で裏返す
+  const canvas = el('canvas', { className: flip ? 'face front' : 'card-canvas', 'aria-label': '会員証' }), backCanvas = flip ? el('canvas', { className: 'face back', 'aria-label': '会員証の裏面(QRコード)' }) : null;
   const qrBox = el('div', { id: 'qr' });
   const qrCard = el('div', { className: 'card mini', style: 'text-align:center' }, qrBox);
   const qrHidden = el('div', { className: 'card', style: 'text-align:center;opacity:.8' }, 'QRコードは非表示です');
@@ -87,7 +88,10 @@ function showCard(me, opts = {}) {
   const infoCard = el('div', { className: 'card' });
   const dl = el('dl'); for (const i of me.items) dl.append(el('dt', {}, i.label), el('dd', {}, i.value)); infoCard.append(dl);
   const toggle = el('button', { className: 'chip' }, '');
-  const paint = () => drawCard(canvas, design, cardData(cur), { logo, bg, qr: design.qr === 'inside' && !privacy ? qrCanvas : null, privacy });
+  const paint = () => {
+    drawCard(canvas, flip ? { ...design, qr: 'below' } : design, cardData(cur), { logo, bg, qr: design.qr === 'inside' && !privacy ? qrCanvas : null, privacy });
+    if (flip) drawCard(backCanvas, design, cardData(cur), { logo, bg, qr: privacy ? null : qrCanvas, privacy, back: true });
+  };
   const cardHasVisit = !!(design.fields.lastVisit || design.fields.visitCount); // カードの中に最終来店・来店回数が出ているときは、カードの下には出さない
   const rankLine = () => { const n = cur.rank?.next; return n ? (cur.rank.demoted ? `ご来店で「${n.title}」に戻ります` : `「${n.title}」まであと${n.remaining}回`) : ''; };
   const renderVisit = () => { visit.textContent = [cardHasVisit ? '' : (privacy ? '最終来店: ••••' : visitText(cur)), rankLine()].filter(Boolean).join(' / '); visit.style.display = visit.textContent ? '' : 'none'; };
@@ -97,10 +101,10 @@ function showCard(me, opts = {}) {
     try {
       const { code, expiresAt } = await api('qr');
       if (privacy) return;
-      if (design.qr === 'inside') { qrCanvas = makeQr(code, 190); paint(); } else { qrBox.replaceChildren(); new QRCode(qrBox, { text: code, width: 150, height: 150 }); }
+      if (design.qr === 'inside' || flip) { qrCanvas = makeQr(code, flip ? 360 : 190); paint(); } else { qrBox.replaceChildren(); new QRCode(qrBox, { text: code, width: 150, height: 150 }); }
       clearTimeout(qrTimer);
       qrTimer = setTimeout(refreshQr, Math.max(10_000, expiresAt - Date.now() - 60_000));
-    } catch (e) { (design.qr === 'inside' ? visit : qrBox).append(el('div', { className: 'err' }, e.message)); }
+    } catch (e) { (design.qr === 'inside' || flip ? visit : qrBox).append(el('div', { className: 'err' }, e.message)); }
   }
   const refreshMe = async () => { try { cur = await api('me'); renderVisit(); paint(); } catch { /* 一時的な失敗は無視 */ } };
 
@@ -109,13 +113,22 @@ function showCard(me, opts = {}) {
     toggle.replaceChildren((privacy ? ICON.eye : ICON.eyeOff)(), privacy ? '表示する' : '隠す'); toggle.classList.toggle('on', privacy);
     infoCard.style.display = privacy ? 'none' : '';
     qrCard.style.display = privacy || storeMode ? 'none' : ''; qrHidden.style.display = privacy && !storeMode && design.qr === 'below' ? '' : 'none';
-    hint.textContent = privacy ? '個人情報を隠しています。「表示する」を押すと元に戻ります' : storeMode ? '来店したら、店頭のQRコードを読み取ってください' : '来店時にこの画面をスタッフにお見せください(QRは自動更新)';
+    hint.textContent = privacy ? '個人情報を隠しています。「表示する」を押すと元に戻ります' : storeMode ? '来店したら、店頭のQRコードを読み取ってください' : flip ? '来店時は、カードを左右にスワイプ(タップ)して、裏面のQRをスタッフにお見せください' : '来店時にこの画面をスタッフにお見せください(QRは自動更新)';
     renderVisit(); paint();
     if (privacy) { clearTimeout(qrTimer); qrCanvas = null; qrBox.replaceChildren(); } else if (window.QRCode) refreshQr();
   }
   toggle.onclick = () => { privacy = !privacy; applyPrivacy(); };
 
-  root.replaceChildren(el('h1', { className: 'shop' }, design.shopName.text || me.shop), canvas, visit); // 見出しも、デザインで設定した店舗名に合わせる
+  // 裏返しのカード: 横にスワイプ、またはタップで表裏が切り替わる (縦のスクロールはそのまま使える)
+  const flipWrap = flip ? el('div', { className: 'flip' }, el('div', { className: 'flip-in' }, canvas, backCanvas)) : null;
+  if (flipWrap) {
+    let x0 = null, flipped = false;
+    const toggleFlip = () => { flipped = !flipped; flipWrap.classList.toggle('turned', flipped); flipWrap.setAttribute('aria-label', flipped ? '会員証の裏面' : '会員証の表面'); };
+    flipWrap.addEventListener('pointerdown', (e) => { x0 = e.clientX; });
+    flipWrap.addEventListener('pointerup', (e) => { if (x0 === null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 40 || Math.abs(dx) < 8) toggleFlip(); });
+    flipWrap.addEventListener('pointercancel', () => { x0 = null; });
+  }
+  root.replaceChildren(el('h1', { className: 'shop' }, design.shopName.text || me.shop), flipWrap ?? canvas, visit); // 見出しも、デザインで設定した店舗名に合わせる
   if (opts.flash) root.append(opts.flash); // 来店を記録した直後のメッセージ
   if (design.qr === 'below') root.append(qrCard, qrHidden); else qrHidden.style.display = 'none';
   root.append(hint);

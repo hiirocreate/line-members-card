@@ -106,7 +106,7 @@ function resetView(token) {
 // 各画面に、何をする画面か・基本の手順・注意点を、ポップアップで出す。マニュアルがなくても使い始められるようにする。
 const HELP = {
   form: { title: '会員登録フォーム', lead: '会員がLINEで登録するときに入力する項目を決める画面です。', steps: ['「テンプレートを適用」で、基本・標準・マーケティングなどの項目セットを選べます。', '「標準項目を追加」で、氏名・電話番号・生年月日・読み仮名などを追加します。「カスタム項目を追加」で、店舗独自の質問も作れます。', '項目の「編集」で、表示名・必須・説明文・入力できる文字(ひらがな/カタカナ/アルファベット)を変えられます。ドラッグで並び替えもできます。', '右のプレビューで、会員に見える画面を確認します。', '最後に必ず「保存」を押します。押すまでは、会員には反映されません。'], tips: ['登録済みの会員のデータは、項目を変えても消えません。不要な項目は「無効」にすると、新規の登録から外れます。', '配信への同意の項目は、必須にできません(同意しないと登録できない形にはしません)。'] },
-  card: { title: '会員証デザイン', lead: '会員のスマホに表示される会員証(カード)と、画面の見た目を設定します。', steps: ['「テンプレート」で土台を選びます。クラシック、ダーク、サクラのほか、ゴールド・シルバーなどのメタリックもあります。', '「背景」で、単色・グラデーション・メタリック・画像から選びます。画像は横長がきれいです。', '「帯(横ライン)」で、カードの上・中・下に横の帯を入れられます(表示・色・太さ)。', '「文字と色」「ロゴ」「文言」で、色・ロゴ・店舗名・タイトルを変えます。', '「カードに表示する項目」で、氏名・来店情報のON/OFFと、氏名の並び順、QRの位置を決めます。', '右のプレビューは、会員が実際に見る画面と同じものです。確認してから「保存」を押します。'], tips: ['「カード画像をダウンロード」で、カードをPNG画像として保存できます。', 'ランク別の色は、「会員ランク」タブで設定します。'] },
+  card: { title: '会員証デザイン', lead: '会員のスマホに表示される会員証(カード)と、画面の見た目を設定します。', steps: ['「テンプレート」で土台を選びます。クラシック、ダーク、サクラのほか、ゴールド・シルバーなどのメタリックもあります。', '「背景」で、単色・グラデーション・メタリック・画像から選びます。画像は横長がきれいです。', '「帯(横ライン)」で、カードの上・中・下に横の帯を入れられます(表示・色・太さ)。', '「文字と色」「ロゴ」「文言」で、色・ロゴ・店舗名・タイトルを変えます。', '「カードに表示する項目」で、氏名・読み仮名・来店情報のON/OFFと、氏名の並び順、QRの位置(カードの下・カードの中・カードの裏面)を決めます。', '右のプレビューは、会員が実際に見る画面と同じものです。確認してから「保存」を押します。'], tips: ['「カード画像をダウンロード」で、カードをPNG画像として保存できます。', 'ランク別の色は、「会員ランク」タブで設定します。', 'QRを「カードの裏面」にすると、会員がカードを左右にスワイプ(タップ)して裏返したときにQRが出ます。この機能は、運営が店舗ごとにオン/オフします。'] },
   members: { title: '会員', lead: '登録した会員の一覧です。検索・絞り込み・詳細の確認・Excel出力ができます。', steps: ['上の「絞り込み」で、項目や来店日数、誕生日までの日数、会員ランクなどの条件を組み合わせて探せます(AND/ORの切り替え可)。', '「表示項目」で、一覧に出す列を選べます(この端末に保存されます)。20件ごとにページ送りします。', '行をクリックすると、会員の詳細が開きます。来店の記録、情報の修正、退会などができます。', '「Excel出力」で、表示中の内容をダウンロードできます(権限が必要です)。'], tips: ['退会した会員は削除されず、「退会済み」として残ります。一覧の状態の切り替えで確認できます。', '個人情報の出力には、専用の権限が必要です。'] },
   rank: { title: '会員ランク', lead: '来店回数に応じて、会員証に称号と★が表示されるしくみです。', steps: ['「会員ランクを有効にする」をオンにします。', 'ランクごとに、称号・必要な来店回数・★の色を設定します。ランクが上がるごとに★が1つ増えます。', '「カードの色を変える」または「メタリック」で、ランクごとにカードの色も変えられます(背景が画像のカードは変わりません)。', '「最終来店から○日で1つ下がる」を入れると、来店がない期間が続いたときにランクダウンします(来店すると戻ります)。', '下のプレビューで、各ランクの会員証を確認して、「保存」を押します。'], tips: ['「次のランクまであと○回」を会員に見せるかどうかも、ここで選べます。', 'メッセージ配信の絞り込みで「会員ランク」を使うと、ランクごとに配信できます。'] },
   scan: { title: '来店スキャン', lead: '来店の記録と、クーポンの使用をする画面です。', steps: ['まず「来店の記録方式」を選びます。「会員のQRを店舗が読み取る」または「店舗のQRを会員が読み取る」です。', '会員のQRを読み取る方式: 「カメラを起動」し、会員が表示した会員証のQRにかざします。', '店舗のQRを読み取る方式: 表示されたQRを店頭のタブレットなどに出します。会員が自分のスマホで読み取ると、来店が記録されます(60秒ごとに自動で切り替わります)。', 'クーポンは、会員が「クーポンを使う」で出したQRを、この画面のカメラで読み取って使用済みにします。', 'QRが使えないときは、会員番号を入力して手動で記録できます。'], tips: ['同じ会員の来店は、30分以内には重複して記録されません。', '来店回数に応じた特典の設定があれば、記録の直後に会員のLINEへ自動で送られます。'] },
@@ -366,7 +366,7 @@ async function cardView() {
   let design = structuredClone(server.design), dirty = false;
   const images = {}, urls = {}; // assetId -> Image / blob URL (プレビューの画像用)
   const getImage = async (id) => { if (!id) return null; if (!images[id]) { try { urls[id] = URL.createObjectURL(await api(`/card/assets/${id}`, { blob: true })); images[id] = await loadImage(urls[id]); } catch { images[id] = null; } } return images[id]; };
-  const sample = { shop: server.tenantName, name: '山田 太郎', nameParts: { family: '山田', given: '太郎' }, memberNumber: '000123', registeredAt: '2026-04-01T00:00:00Z', lastVisitAt: new Date().toISOString(), visitCount: 12 };
+  const sample = { shop: server.tenantName, name: '山田 太郎', nameParts: { family: '山田', given: '太郎' }, reading: 'ヤマダ タロウ', readingParts: { family: 'ヤマダ', given: 'タロウ' }, memberNumber: '000123', registeredAt: '2026-04-01T00:00:00Z', lastVisitAt: new Date().toISOString(), visitCount: 12 };
   const qr = makeQr('PREVIEW-SAMPLE', 190);
   const canvas = document.createElement('canvas'); // 「カード画像をダウンロード」用 (画面には出さない)
   // プレビューは、会員が実際に見る画面(/app?preview=1)をそのまま埋め込む。同じコードで描くので、見た目が必ず一致する
@@ -389,7 +389,7 @@ async function cardView() {
     if (!frameReady || !frame.contentWindow) return;
     const me = { registered: true, shop: server.tenantName, member_number: '000123', last_visit_at: new Date().toISOString(), visit_count: 12, registered_at: sample.registeredAt,
       items: [{ field_id: 'a', label: '氏名', value: '山田 太郎' }, { field_id: 'b', label: '電話番号', value: '090XXXXXXXX' }], consents: { LINE: true }, prefs: { news: true, coupon: true, birthday: true },
-      rank, card: design, card_data: { name: '山田 太郎', parts: sample.nameParts, registered_at: sample.registeredAt }, shopcardUrl: 'https://line.me/', notice: null, sampleCoupon: featOn('coupons') };
+      rank, card: design, card_data: { name: '山田 太郎', parts: sample.nameParts, reading: { parts: sample.readingParts }, registered_at: sample.registeredAt }, shopcardUrl: 'https://line.me/', notice: null, sampleCoupon: featOn('coupons') };
     frame.contentWindow.postMessage({ type: 'preview', me, assetUrls: urls }, location.origin);
   };
   const touch = (custom = true) => { if (custom) design.template = 'custom'; dirty = true; state.textContent = '未保存の変更があります'; ok.textContent = ''; redraw(); };
@@ -445,9 +445,10 @@ async function cardView() {
         lab('店舗名の位置', bindSelect([['left', '左'], ['center', '中央']], () => design.shopName.align, (v) => { design.shopName.align = v; })),
         lab('カードのタイトル', bindText(() => design.title, (v) => { design.title = v; }, 'MEMBER CARD', 24, 'title'))),
       sec('カードに表示する項目', el('div', { className: 'hint' }, '会員番号は常に表示されます。'), bindCheck('氏名', () => design.fields.name, (v) => { design.fields.name = v; }),
+        bindCheck('氏名の読み仮名(氏名の上に小さく表示)', () => design.fields.reading, (v) => { design.fields.reading = v; }),
         lab('氏名の並び順', bindSelect([['asis', '登録されたとおり(例: 山田 太郎)'], ['swap', '姓と名を入れ替える(例: 太郎 山田)']], () => design.fields.nameOrder ?? 'asis', (v) => { design.fields.nameOrder = v; }), '姓と名が別の項目(マスタの「姓」「名」)のときは、その2項目を並べ替えて表示します。1つの氏名項目のときは、姓と名の間に空白があるときだけ入れ替わります。'), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
         bindCheck('最終来店日', () => design.fields.lastVisit, (v) => { design.fields.lastVisit = v; }), bindCheck('来店回数', () => design.fields.visitCount, (v) => { design.fields.visitCount = v; }),
-        lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)']], () => design.qr, (v) => { design.qr = v; }), 'カードの中に入れると、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。')),
+        lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)'], ...((featOn('qrflip') || design.qr === 'flip') ? [['flip', 'カードの裏面(スワイプで表示)']] : [])], () => design.qr, (v) => { design.qr = v; }), '「裏面」にすると、会員がカードを左右にスワイプ(タップ)したとき、裏面にQRが表示されます。カードの中・裏面にしても、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。この機能が選べない場合は、運営に「カードの裏面にQR」の利用をご依頼ください。')),
       sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; }), '丸いボタンの枠・アイコンと、主なボタンの色です。'), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),
         lab('メッセージ(カードの下に表示)', bindText(() => design.page.welcomeText, (v) => { design.page.welcomeText = v; }, '例: ご来店ありがとうございます', 120)),
         bindCheck('「登録情報」(折りたたみの一覧)を表示する', () => design.page.showInfoList, (v) => { design.page.showInfoList = v; }), bindCheck('公式LINEのショップカードのボタンを表示する(URLを設定した場合)', () => design.page.showShopcard, (v) => { design.page.showShopcard = v; }),
@@ -461,7 +462,7 @@ async function cardView() {
     design = r.design; dirty = false; state.textContent = ''; ok.textContent = `保存しました(会員の画面に反映されます / v${r.version})`; drawControls(); redraw();
   });
   const reset = () => { if (!confirm('デザインを初期状態に戻します(保存するまで反映されません)。')) return; design = { ...structuredClone(PRESETS.classic.design), template: 'classic', background: { ...PRESETS.classic.design.background, imageId: null }, logo: { imageId: null, position: 'top-left', size: 'M' },
-      shopName: { show: true, text: '', size: 'M', align: 'left' }, title: 'MEMBER CARD', fields: { name: true, nameOrder: 'asis', registeredAt: false, lastVisit: true, visitCount: true }, qr: 'below', page: { ...PRESETS.classic.design.page, welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true } }; touch(false); drawControls(); };
+      shopName: { show: true, text: '', size: 'M', align: 'left' }, title: 'MEMBER CARD', fields: { name: true, reading: false, nameOrder: 'asis', registeredAt: false, lastVisit: true, visitCount: true }, qr: 'below', page: { ...PRESETS.classic.design.page, welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true } }; touch(false); drawControls(); };
   const download = () => canvas.toBlob((b) => { const a = el('a', { href: URL.createObjectURL(b), download: 'member-card.png' }); document.body.append(a); a.click(); a.remove(); }, 'image/png');
 
   drawControls(); await redraw();

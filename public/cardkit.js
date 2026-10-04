@@ -109,11 +109,13 @@ function drawBackground(ctx, bg, images) {
 // 氏名の並び順: 'swap' は、空白で区切られた姓と名を入れ替える (山田 太郎 → 太郎 山田)。空白がなければそのまま
 // 姓・名が別項目のときは parts({family, given}) から組み立てる。'asis' は 姓 名、'swap' は 名 姓
 export const cardName = (data, order) => { const p = data.nameParts; if (p && (p.family || p.given)) return (order === 'swap' ? [p.given, p.family] : [p.family, p.given]).filter(Boolean).join(' '); return formatName(data.name, order); };
+// 読み仮名: 姓・名が別項目のときは parts({family, given}) から組み立てる。'swap' なら 名 姓
+export const cardReading = (data, order) => { const p = data.readingParts; if (p && (p.family || p.given)) return (order === 'swap' ? [p.given, p.family] : [p.family, p.given]).filter(Boolean).join(' '); return formatName(data.reading, order); };
 export const formatName = (name, order) => { const parts = String(name ?? '').trim().split(/[\s\u3000]+/).filter(Boolean); return order === 'swap' && parts.length > 1 ? parts.reverse().join(' ') : parts.join(' '); };
 // data: { shop, name, memberNumber, registeredAt, lastVisitAt, visitCount }
 // images: { logo, bg } (読み込み済みの Image)。qr: canvas (qr==='inside' のときのみ描画)
 // privacy: true のとき、氏名・来店情報を出さず、会員番号を伏せ、QRの代わりに「非表示」の枠を描く (人に画面を見られるとき用)
-export function drawCard(canvas, design, data, { logo = null, bg = null, qr = null, privacy = false } = {}) {
+export function drawCard(canvas, design, data, { logo = null, bg = null, qr = null, privacy = false, back = false } = {}) {
   canvas.width = CARD_W; canvas.height = CARD_H;
   // ランクにカード色が設定されていれば、背景(画像以外)をその色にする。文字色は背景に合わせて白/黒を自動で選ぶ
   const rank = data.rank ?? null, rankMetal = !!(rank?.metal && METALS[rank.metal] && design.background.type !== 'image'), recolor = rankMetal || !!(rank?.color1 && design.background.type !== 'image');
@@ -124,6 +126,18 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
   drawBackground(ctx, bgCfg, { bg });
   drawBands(ctx, design.bands);
   ctx.textBaseline = 'alphabetic'; ctx.fillStyle = tc;
+
+  // ---- 裏面 (スワイプで見せるQR): 同じ背景・帯に、QRを中央に置く ----
+  if (back) {
+    const s = 360, pad = 22, x = (CARD_W - s - pad * 2) / 2, yy = (CARD_H - s - pad * 2) / 2 - 8;
+    ctx.fillStyle = '#ffffff'; roundRect(ctx, x, yy, s + pad * 2, s + pad * 2, 24); ctx.fill();
+    if (qr && !privacy) ctx.drawImage(qr, x + pad, yy + pad, s, s);
+    else { ctx.fillStyle = '#888888'; ctx.font = `600 34px ${font}`; ctx.textAlign = 'center'; ctx.fillText(privacy ? 'QRコードは非表示中です' : 'QRコードを読み込み中…', CARD_W / 2, yy + pad + s / 2 + 10); ctx.textAlign = 'left'; }
+    ctx.font = `600 26px ${font}`; ctx.fillStyle = tc; ctx.globalAlpha = 0.85;
+    spaced(ctx, design.title || 'MEMBER CARD', CARD_W / 2, 52, 5, 'center');
+    ctx.font = `500 24px ${font}`; ctx.textAlign = 'center'; ctx.fillText(`会員番号 ${privacy ? maskNumber(data.memberNumber) : data.memberNumber ?? ''}`, CARD_W / 2, CARD_H - 36); ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+    ctx.restore(); return;
+  }
 
   // ---- 上段: ロゴ と タイトル ----
   const pos = design.logo.position; let topBottom = P;
@@ -155,7 +169,7 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
   if (design.shopName.show) {
     const size = SIZES.shop[design.shopName.size], text = design.shopName.text || data.shop || '';
     ctx.font = `700 ${size}px ${font}`; ctx.fillStyle = tc;
-    const y = 290, center = design.shopName.align === 'center', x = center ? CARD_W / 2 : P;
+    const y = design.fields.reading && design.fields.name && !privacy ? 262 : 290, center = design.shopName.align === 'center', x = center ? CARD_W / 2 : P;
     ctx.textAlign = center ? 'center' : 'left'; ctx.fillText(fit(ctx, text, CARD_W - P * 2), x, y);
     ctx.fillStyle = accent; ctx.fillRect(center ? CARD_W / 2 - 40 : P, y + 22, 80, 6); ctx.textAlign = 'left';
   }
@@ -173,7 +187,11 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
   ctx.globalAlpha = 0.9;
   for (let i = lines.length - 1; i >= 0; i--) { ctx.fillText(fit(ctx, lines[i], textMaxW), P, y); y -= 44; }
   ctx.globalAlpha = 1;
-  if (!privacy && design.fields.name && (data.name || data.nameParts)) { ctx.font = `600 44px ${font}`; ctx.fillText(fit(ctx, cardName(data, design.fields.nameOrder), textMaxW), P, y); y -= 70; }
+  if (!privacy && design.fields.name && (data.name || data.nameParts)) {
+    ctx.font = `600 44px ${font}`; ctx.fillText(fit(ctx, cardName(data, design.fields.nameOrder), textMaxW), P, y); y -= 70;
+    const rd = design.fields.reading ? cardReading(data, design.fields.nameOrder) : ''; // 氏名の読み仮名(氏名の上に小さく)
+    if (rd) { ctx.font = `500 26px ${font}`; ctx.globalAlpha = 0.85; ctx.fillText(fit(ctx, rd, textMaxW), P, y + 18); ctx.globalAlpha = 1; y -= 34; }
+  }
   ctx.font = `700 84px ${font}`; ctx.fillStyle = tc; spaced(ctx, privacy ? maskNumber(data.memberNumber) : String(data.memberNumber ?? ''), P, y, 8);
   ctx.font = `500 24px ${font}`; ctx.globalAlpha = 0.8; spaced(ctx, 'MEMBER No.', P, y - 84 - 14, 3); ctx.globalAlpha = 1;
 

@@ -16,6 +16,12 @@ label.o{display:block;margin:4px 0}small{opacity:.7;display:block}
 button{width:100%;padding:10px 14px;margin-top:8px;font-size:14px;font-weight:600;letter-spacing:.02em;border:0;border-radius:10px;background:var(--accent,#06c755);color:var(--accent-text,#fff)}
 button.sub{background:#888;color:#fff}.err{color:#c00}.notice{background:#fff3cd;color:#222;padding:8px;border-radius:6px}.ok{color:#2e7d32}.welcome{text-align:center;white-space:pre-wrap}.hint{opacity:.7;font-size:13px}
 dl{margin:0}dt{font-weight:bold;margin-top:8px}dd{margin:0}
+/* カードの裏返し: 表(canvas)と裏(canvas)を重ね、横スワイプで回転する */
+.flip{perspective:1200px;margin:4px 0;touch-action:pan-y;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.flip-in{position:relative;width:100%;aspect-ratio:1000/630;transition:transform .55s cubic-bezier(.3,.7,.3,1);transform-style:preserve-3d}
+.flip.turned .flip-in{transform:rotateY(180deg)}
+.flip .face{position:absolute;inset:0;width:100%;height:100%;backface-visibility:hidden;-webkit-backface-visibility:hidden;filter:drop-shadow(0 4px 10px rgba(0,0,0,.25))}
+.flip .back{transform:rotateY(180deg)}
 h1.shop{font-size:15px;margin:2px 0 4px;text-align:center}
 main.compact{padding:8px 12px}.card.mini{padding:10px 12px;margin:8px 0;font-size:14px}
 .bar{display:flex;gap:6px;margin:6px 0}

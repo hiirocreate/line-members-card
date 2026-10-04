@@ -142,6 +142,16 @@ export class MemberService {
     const family = val(pick('last_name', FAMILY_LABEL)), given = val(pick('first_name', GIVEN_LABEL));
     return family || given ? { family, given } : null;
   }
+  // カードに出す読み仮名: { text } (氏名の読み仮名が1項目) または { parts: { family, given } } (姓・名の読み仮名が別項目)。無ければ null
+  cardReading(tenantId, m) {
+    const fields = this.forms.fields(tenantId), vals = this.#valuesOf(tenantId, m.member_id);
+    const find = (key, re) => fields.find((f) => f.field_type === 'TEXT' && (f.master_key === key || (!f.master_key && re.test(f.field_name.trim()) && READING.test(f.field_name))));
+    const val = (f) => { const v = f ? this.#read(m, f, vals) : null; return typeof v === 'string' ? v.trim() : ''; };
+    const family = val(find('last_name_reading', /^(姓|苗字|名字|氏(?!名))/)), given = val(find('first_name_reading', /^名(?!前)/));
+    if (family || given) return { parts: { family, given } };
+    const full = val(find('name_reading', /氏名|名前/));
+    return full ? { text: full } : null;
+  }
   // 会員証に出す氏名: 氏名項目(コア列)が空なら、「氏名/名前」という名前の文字項目の値を使う
   cardName(tenantId, m) {
     if (m.name) return m.name;

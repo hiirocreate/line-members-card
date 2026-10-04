@@ -81,6 +81,9 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
   };
   app.birthday.couponUrl = app.visitRules.couponUrl = app.messaging.couponUrl;
 
+  // 会員に見せるデザイン: 運営が「カードの裏面にQR」をオフにした店舗では、通常の表示(カードの下)に戻す
+  const memberDesign = (tenantId) => { const d = app.card.get(tenantId).design; return d.qr === 'flip' && !featureOn(app.store, tenantId, 'qrflip') ? { ...d, qr: 'below' } : d; };
+
   // 応答は即送らず保留し、永続化(flush)が終わってから返す
   const pending = new WeakMap();
   const send = (res, code, body, type = 'application/json; charset=utf-8', extra = {}) => pending.set(res, () => {
@@ -126,7 +129,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents,
-          scan_mode: app.members.scanMode(tenantId), card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), rank, card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
+          scan_mode: app.members.scanMode(tenantId), card: memberDesign(tenantId), prefs: app.members.prefsOf(member), rank, card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), reading: app.members.cardReading(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
       if (rest === 'coupons' || rest === 'coupon') { // クーポン (会員本人・有効な会員のみ)
@@ -274,7 +277,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
 
     // 会員証デザイン (カード面・会員画面のテーマ・画像)
     if (path === '/card' && req.method === 'GET') { require_(actor, 'CARD_DESIGN', needTenant()); return ok({ ...app.card.get(tenant), assets: app.card.assets(tenant), tenantName: app.store.find('tenants', (x) => x.tenant_id === tenant)?.name ?? '' }); }
-    if (path === '/card' && req.method === 'PUT') return ok(app.card.save(actor, needTenant(), body.design));
+    if (path === '/card' && req.method === 'PUT') { const t = needTenant(); if (body.design?.qr === 'flip' && !featureOn(app.store, t, 'qrflip')) throw new ValidationError('「カードの裏面にQR」は、この店舗ではご利用できません'); return ok(app.card.save(actor, t, body.design)); }
     if (path === '/card/assets' && req.method === 'POST') return ok(app.card.addAsset(actor, needTenant(), body), 201);
     if ((m = /^\/card\/assets\/([0-9a-f]{32})$/.exec(path)) && req.method === 'GET') {
       require_(actor, 'CARD_DESIGN', needTenant());

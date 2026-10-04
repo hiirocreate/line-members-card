@@ -19,7 +19,7 @@ export const DEFAULT_DESIGN = {
   shopName: { show: true, text: '', size: 'M', align: 'left' },
   title: 'MEMBER CARD',
   logo: { imageId: null, position: 'top-left', size: 'M' },
-  fields: { name: true, nameOrder: 'asis', registeredAt: false, lastVisit: true, visitCount: true },
+  fields: { name: true, reading: false, nameOrder: 'asis', registeredAt: false, lastVisit: true, visitCount: true },
   qr: 'below', radius: 'large', font: 'sans',
   page: { accentColor: '#06c755', backgroundColor: '#f4f5f7', welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true },
 };
@@ -27,7 +27,7 @@ export const DEFAULT_DESIGN = {
 export const METALS = ['gold', 'silver', 'bronze', 'platinum', 'rosegold', 'chrome']; // メタリック(金属調)の種類
 const ENUM = {
   metal: METALS, bgType: ['solid', 'gradient', 'image', 'metal'], size: ['S', 'M', 'L'], align: ['left', 'center'], pos: ['top-left', 'top-center', 'top-right'],
-  qr: ['below', 'inside'], nameOrder: ['asis', 'swap'], radius: ['none', 'small', 'large'], font: ['sans', 'serif'], template: ['classic', 'dark', 'minimal', 'sakura', 'forest', 'photo', ...METALS.map((m) => `metal_${m}`), 'custom'],
+  qr: ['below', 'inside', 'flip'], nameOrder: ['asis', 'swap'], radius: ['none', 'small', 'large'], font: ['sans', 'serif'], template: ['classic', 'dark', 'minimal', 'sakura', 'forest', 'photo', ...METALS.map((m) => `metal_${m}`), 'custom'],
 };
 
 // 入力を検証し、不足を既定値で補った完全なデザインを返す。未知の値・不正な色・他店舗の画像は拒否。
@@ -57,7 +57,7 @@ export function normalizeDesign(input, { hasAsset = () => false } = {}) {
     shopName: { show: bool(sn.show, D.shopName.show), text: text(sn.text, D.shopName.text, 30, '店舗名'), size: pick(sn.size, ENUM.size, D.shopName.size, '店舗名の大きさ'), align: pick(sn.align, ENUM.align, D.shopName.align, '店舗名の位置') },
     title: text(d.title, D.title, 24, 'カードのタイトル'),
     logo: { imageId: img(lg.imageId, 'ロゴ'), position: pick(lg.position, ENUM.pos, D.logo.position, 'ロゴの位置'), size: pick(lg.size, ENUM.size, D.logo.size, 'ロゴの大きさ') },
-    fields: { name: bool(f.name, D.fields.name), nameOrder: pick(f.nameOrder, ENUM.nameOrder, D.fields.nameOrder, '氏名の並び順'), registeredAt: bool(f.registeredAt, D.fields.registeredAt), lastVisit: bool(f.lastVisit, D.fields.lastVisit), visitCount: bool(f.visitCount, D.fields.visitCount) },
+    fields: { name: bool(f.name, D.fields.name), reading: bool(f.reading, D.fields.reading), nameOrder: pick(f.nameOrder, ENUM.nameOrder, D.fields.nameOrder, '氏名の並び順'), registeredAt: bool(f.registeredAt, D.fields.registeredAt), lastVisit: bool(f.lastVisit, D.fields.lastVisit), visitCount: bool(f.visitCount, D.fields.visitCount) },
     qr: pick(d.qr, ENUM.qr, D.qr, 'QRコードの位置'), radius: pick(d.radius, ENUM.radius, D.radius, '角の丸み'), font: pick(d.font, ENUM.font, D.font, '書体'),
     page: { accentColor: color(pg.accentColor, D.page.accentColor, 'ボタンの色'), backgroundColor: color(pg.backgroundColor, D.page.backgroundColor, '画面の背景色'),
       welcomeText: text(pg.welcomeText, D.page.welcomeText, 120, 'メッセージ'), showInfoList: bool(pg.showInfoList, D.page.showInfoList), showShopcard: bool(pg.showShopcard, D.page.showShopcard), showNotice: bool(pg.showNotice, D.page.showNotice) },

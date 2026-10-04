@@ -33,6 +33,8 @@ function clean(input, { partial = false } = {}) {
     else if (!Number.isInteger(Number(input.valid_days)) || Number(input.valid_days) < 1 || Number(input.valid_days) > 365) errors.push('付与からの有効日数は1〜365の整数で指定してください');
     else out.valid_days = Number(input.valid_days);
   }
+  const flag = (k) => { if (input[k] !== undefined) out[k] = input[k] === true || input[k] === 'TRUE'; };
+  flag('multi_use'); flag('once_per_day');
   text('title', 'クーポン名', 40, true); text('benefit', '特典の内容', 60, false); text('description', '利用条件・説明', 300, false);
   day('valid_from', '利用開始日'); day('valid_until', '有効期限');
   if (out.valid_from && out.valid_until && out.valid_until < out.valid_from) errors.push('有効期限は、利用開始日以降にしてください');
@@ -64,7 +66,9 @@ export class CouponService {
     return this.store.select('coupon_grants', (g) => g.tenant_id === tenantId && g.coupon_id === couponId && g.member_id === memberId)
       .sort((a, b) => String(a.granted_at).localeCompare(String(b.granted_at))).at(-1) ?? null;
   }
+  #multi(c) { return c.multi_use === true || c.multi_use === 'TRUE'; } // 期間中は何度でも使えるクーポン
   #used(c, memberId, g) {
+    if (this.#multi(c)) return false;
     return !!this.store.find('coupon_redemptions', (r) => r.tenant_id === c.tenant_id && r.coupon_id === c.coupon_id && r.member_id === memberId && (r.grant_id || '') === (g.grant_id || ''));
   }
   // 会員から見た状態: 付与されていない / 使用済み / 利用可能 など
@@ -81,7 +85,7 @@ export class CouponService {
     require_(actor, 'COUPON_MANAGE', tenantId);
     const grants = this.store.select('coupon_grants', (g) => g.tenant_id === tenantId), reds = this.store.select('coupon_redemptions', (r) => r.tenant_id === tenantId);
     return this.store.select('coupons', (c) => c.tenant_id === tenantId).sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .map((c) => ({ ...c, window: this.window(c), granted: new Set(grants.filter((g) => g.coupon_id === c.coupon_id).map((g) => g.member_id)).size, redeemed: reds.filter((r) => r.coupon_id === c.coupon_id).length }));
+      .map((c) => ({ ...c, multi_use: this.#multi(c), once_per_day: c.once_per_day === true || c.once_per_day === 'TRUE', window: this.window(c), granted: new Set(grants.filter((g) => g.coupon_id === c.coupon_id).map((g) => g.member_id)).size, redeemed: reds.filter((r) => r.coupon_id === c.coupon_id).length }));
   }
   // スタッフ用: 使用できる(有効な)クーポンの一覧 (手入力での使用済み処理・配信の添付に使う)
   active(actor, tenantId) {
@@ -91,7 +95,7 @@ export class CouponService {
   create(actor, tenantId, input) {
     require_(actor, 'COUPON_MANAGE', tenantId);
     const v = clean(input ?? {});
-    const row = { coupon_id: randomUUID().replace(/-/g, ''), tenant_id: tenantId, title: v.title, benefit: v.benefit ?? '', description: v.description ?? '', valid_from: v.valid_from ?? '', valid_until: v.valid_until ?? '', valid_days: v.valid_days ?? '',
+    const row = { coupon_id: randomUUID().replace(/-/g, ''), tenant_id: tenantId, title: v.title, benefit: v.benefit ?? '', description: v.description ?? '', valid_from: v.valid_from ?? '', valid_until: v.valid_until ?? '', valid_days: v.valid_days ?? '', multi_use: !!v.multi_use, once_per_day: !!v.once_per_day,
       status: 'ACTIVE', created_by: actor.id, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
     this.store.insert('coupons', row);
     audit(this.store, { tenant_id: tenantId, actor, action: 'COUPON_CREATE', target: row.coupon_id, detail: { title: row.title } });
@@ -148,10 +152,11 @@ export class CouponService {
   memberCoupon(tenantId, memberId, id) {
     const c = this.#row(tenantId, id), state = this.state(c, memberId);
     if (state === 'not_granted') throw new ValidationError('このクーポンは、あなたには配布されていません');
-    return { coupon: this.#public(c, memberId), state };
+    const mine = this.store.select('coupon_redemptions', (r) => r.tenant_id === tenantId && r.coupon_id === id && r.member_id === memberId);
+    return { coupon: this.#public(c, memberId), state, redeemed_count: mine.length, last_redeemed_at: mine.at(-1)?.redeemed_at ?? null };
   }
   #public(c, memberId) {
-    return { coupon_id: c.coupon_id, title: c.title, benefit: c.benefit, description: c.description, valid_from: c.valid_from, valid_until: this.#until(c, this.#latest(c.tenant_id, c.coupon_id, memberId)) };
+    return { coupon_id: c.coupon_id, title: c.title, benefit: c.benefit, description: c.description, multi_use: this.#multi(c), valid_from: c.valid_from, valid_until: this.#until(c, this.#latest(c.tenant_id, c.coupon_id, memberId)) };
   }
 
   // 5分有効の使用コード(QR)。利用できる状態のときだけ発行
@@ -186,6 +191,10 @@ export class CouponService {
     if (!m || m.status === 'WITHDRAWN') throw new ValidationError('退会済みの会員です');
     const state = this.state(c, memberId);
     if (state !== 'available') throw new ValidationError(STATE_MSG[state] ?? 'このクーポンは使えません');
+    if ((c.once_per_day === true || c.once_per_day === 'TRUE') && this.#multi(c)) { // 「1日1回まで」(日本時間の日付で判定)
+      const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+      if (this.store.find('coupon_redemptions', (r) => r.tenant_id === tenantId && r.coupon_id === couponId && r.member_id === memberId && new Date(Date.parse(r.redeemed_at) + 9 * 3600_000).toISOString().slice(0, 10) === today)) throw new ValidationError('このクーポンは、本日すでに使用済みです(1日1回まで)');
+    }
     const g = this.#latest(tenantId, couponId, memberId);
     this.store.insert('coupon_redemptions', { redemption_id: randomUUID(), coupon_id: couponId, tenant_id: tenantId, member_id: memberId, redeemed_at: new Date().toISOString(), recorded_by: actor.id, method, grant_id: g?.grant_id ?? '' });
     audit(this.store, { tenant_id: tenantId, actor, action: 'COUPON_REDEEM', target: couponId, detail: { member: m.member_number, method } });

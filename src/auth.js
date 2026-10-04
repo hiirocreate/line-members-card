@@ -116,7 +116,7 @@ export function login(store, { email, password, code, lineCode, assertion, chall
   }
   limiter?.ok(key);
   audit(store, { tenant_id: a.tenant_id, actor: { id: a.admin_id }, action: 'ADMIN_LOGIN', target: a.admin_id, detail: { mfa: how } });
-  return { token: issueSession(a, secret, remember === true) };
+  return { token: issueSession(a, secret, remember === true), mustChange: a.must_change_password === true || a.must_change_password === 'TRUE' };
 }
 // 「ログイン状態を保持」のセッションは、残りが半分を切ったら新しいトークンに差し替える (使っている間はログインし直し不要)。保持なしのセッションは null
 export function renewSession(store, token, secret) {
@@ -135,7 +135,7 @@ export function verifySession(store, token, secret) {
   if (!(s.exp > Date.now())) return null;
   const a = store.find('admins', (x) => x.admin_id === s.sub);
   if (!a?.enabled || (s.ep ?? 0) !== epochOf(a)) return null;
-  return { id: a.admin_id, role: a.role, tenantId: a.tenant_id, grants: a.grants ?? [], email: a.email, totp: !!a.totp_enabled };
+  return { id: a.admin_id, role: a.role, tenantId: a.tenant_id, grants: a.grants ?? [], email: a.email, totp: !!a.totp_enabled, mustChange: a.must_change_password === true || a.must_change_password === 'TRUE' };
 }
 
 // ---- 自分のアカウント: パスワード変更 / 二段階認証 ----
@@ -143,7 +143,7 @@ export function changePassword(store, actor, { current, next, secret }) {
   const a = getAdmin(store, actor.id);
   if (!checkPassword(String(current ?? ''), a.password_hash)) throw new ValidationError('現在のパスワードが違います');
   checkNewPassword(next);
-  store.update('admins', (x) => x.admin_id === a.admin_id, { password_hash: hashPassword(next) });
+  store.update('admins', (x) => x.admin_id === a.admin_id, { password_hash: hashPassword(next), must_change_password: false });
   bumpEpoch(store, a); // 他の端末のセッションは無効化
   audit(store, { tenant_id: a.tenant_id, actor, action: 'ADMIN_PASSWORD_CHANGE', target: a.admin_id });
   return issueSession(getAdmin(store, a.admin_id), secret);
@@ -302,6 +302,25 @@ export function issueResetToken(store, actor, targetId) {
   store.insert('password_resets', { token_hash: createHash('sha256').update(token).digest('hex'), admin_id: t.admin_id, expires_at: Date.now() + 3600_000, used: false, created_by: actor.id, created_at: new Date().toISOString() });
   audit(store, { tenant_id: t.tenant_id, actor, action: 'ADMIN_RESET_ISSUE', target: t.admin_id });
   return { token, expiresInMinutes: 60 };
+}
+// 仮パスワードの発行 / 管理者によるパスワード設定: どちらも、本人が最初のログインで自分のパスワードに変更するまで他の操作はできない
+const TEMP_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; // 紛らわしい文字(0/O, 1/l/I)を除く
+const randomTemp = (n = 12) => { const b = randomBytes(n); return Array.from(b, (x) => TEMP_CHARS[x % TEMP_CHARS.length]).join(''); };
+function applyPassword(store, actor, t, password, action) {
+  store.update('admins', (x) => x.admin_id === t.admin_id, { password_hash: hashPassword(password), must_change_password: true });
+  bumpEpoch(store, t); // その人の既存のログインは無効になる
+  store.update('password_resets', (r) => r.admin_id === t.admin_id && !r.used, { used: true });
+  audit(store, { tenant_id: t.tenant_id, actor, action, target: t.admin_id });
+}
+export function issueTempPassword(store, actor, targetId) {
+  const t = manageable(store, actor, targetId), password = randomTemp();
+  applyPassword(store, actor, t, password, 'ADMIN_TEMP_PASSWORD');
+  return { password };
+}
+export function setUserPassword(store, actor, targetId, { password }) {
+  const t = manageable(store, actor, targetId);
+  checkNewPassword(password);
+  applyPassword(store, actor, t, password, 'ADMIN_SET_PASSWORD');
 }
 export function consumeResetToken(store, { token, password }) {
   const h = createHash('sha256').update(String(token ?? '')).digest('hex');

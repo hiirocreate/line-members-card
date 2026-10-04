@@ -10,7 +10,7 @@ import { SheetsStore } from './sheetsStore.js';
 import { renderForm } from './render.js';
 import { ValidationError, AuthError, FriendRequiredError } from './sanitize.js';
 import { Forbidden, PERMS, can, require_ } from './permissions.js';
-import { login, verifySession, renewSession, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey, sendLineCode, startLineLink, readLineLink, completeLineLink, unlinkLine, lineLinked } from './auth.js';
+import { login, verifySession, renewSession, issueTempPassword, setUserPassword, verifyLineIdToken, createAdmin, setAdminEnabled, LoginLimiter, changePassword, setup2fa, enable2fa, disable2fa, resetTwoFactor, issueResetToken, consumeResetToken, listAdmins, listPasskeys, beginPasskeyRegistration, finishPasskeyRegistration, deletePasskey, sendLineCode, startLineLink, readLineLink, completeLineLink, unlinkLine, lineLinked } from './auth.js';
 import { push, isFriend, friendAddUrl, botInfo } from './line.js';
 import { resolveLine, publicLine, setLine, testMessaging } from './settings.js';
 import { addMasterField, setBannedTerms, listMaster, getBannedTerms } from './master.js';
@@ -72,6 +72,13 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     return `https://liff.line.me/${l.liffId}?t=${tok}&coupon=${couponId}`;
   };
 
+  // 店舗のQRの中身: 会員が自分のスマホのカメラで読み取ると、LINEでミニアプリが開き、来店が記録される
+  app.messaging.visitUrl = (actor, tenantId, code) => {
+    const l = resolveLine(app.store, app.vault, tenantId, defaults);
+    if (!l.liffId) return null;
+    const tok = app.store.find('tenant_urls', (u) => u.tenant_id === tenantId && u.enabled)?.token ?? app.forms.issueRegistrationUrl(actor, tenantId);
+    return `https://liff.line.me/${l.liffId}?t=${tok}&visit=${code}`;
+  };
   app.birthday.couponUrl = app.visitRules.couponUrl = app.messaging.couponUrl;
 
   // 応答は即送らず保留し、永続化(flush)が終わってから返す
@@ -100,7 +107,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     }
     if (req.method === 'GET' && rest === 'form') return send(res, 200, { shop, version: form.version, fields: form.fields.map(strip) });
     if (req.method === 'POST' && rest === 'confirm') return send(res, 200, app.members.confirmRegistration(tenantId, (await readBody(req)).values ?? {}));
-    if (['register', 'me', 'qr', 'withdraw', 'consent', 'prefs', 'friend', 'coupons', 'coupon'].includes(rest)) {
+    if (['register', 'me', 'qr', 'withdraw', 'consent', 'prefs', 'visit', 'friend', 'coupons', 'coupon'].includes(rest)) {
       const userId = await verifyLine(bearer(req), line.loginChannelId, fetchImpl); // 必ずLINEのIDトークンから userId を得る(店舗ごとのチャネルで検証)
       if (req.method === 'GET' && rest === 'friend') return send(res, 200, await friendStatus(tenantId, userId)); // 登録前の確認(画面の案内用)
       if (req.method === 'POST' && rest === 'register') {
@@ -119,7 +126,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents,
-          card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), rank, card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
+          scan_mode: app.members.scanMode(tenantId), card: app.card.get(tenantId).design, prefs: app.members.prefsOf(member), rank, card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
       if (rest === 'coupons' || rest === 'coupon') { // クーポン (会員本人・有効な会員のみ)
@@ -135,6 +142,11 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         const b = await readBody(req);
         app.members.setConsentByUser(tenantId, userId, b.channel, b.granted);
         return send(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && rest === 'visit') { // 店舗のQRを読み取って来店を記録 (STORE_QR方式の店舗のみ)
+        if (!featureOn(app.store, tenantId, 'scan')) return send(res, 403, { error: 'この機能はご利用できません' });
+        const r = app.members.visitByStoreCode(tenantId, userId, (await readBody(req)).code);
+        return send(res, 200, { visit_count: r.visit_count, rewards: await app.visitRules.onVisit(tenantId, r.member_id) });
       }
       if (req.method === 'POST' && rest === 'prefs') return send(res, 200, { prefs: app.members.setPrefsByUser(tenantId, userId, await readBody(req)) });
       if (req.method === 'POST' && rest === 'withdraw') {
@@ -183,13 +195,17 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     const ok = (obj = { ok: true }, code = 200) => send(res, code, obj);
     const miniUrl = (tid, token) => { const id = resolveLine(app.store, app.vault, tid, defaults).liffId; return id ? `https://liff.line.me/${id}?t=${token}` : null; };
 
+    // 仮パスワードでログインした直後は、パスワードを変更するまで他の操作はできない
+    if (actor.mustChange && !(path === '/me' || path === '/security/password')) return send(res, 403, { error: '先にパスワードを変更してください', code: 'must_change' });
     if (path === '/me' && req.method === 'GET') {
       const t = actor.tenantId && app.store.find('tenants', (x) => x.tenant_id === actor.tenantId);
-      return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)), renew: renewSession(app.store, bearer(req), sessionSecret), features: isOp || !actor.tenantId ? featureMap(app.store, null) : featureMap(app.store, actor.tenantId) });
+      return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)), mustChange: !!actor.mustChange, renew: renewSession(app.store, bearer(req), sessionSecret), features: isOp || !actor.tenantId ? featureMap(app.store, null) : featureMap(app.store, actor.tenantId) });
     }
     if (isOp && path === '/tenants' && req.method === 'GET') return ok({ tenants: app.store.select('tenants').map(({ tenant_id, name, status }) => ({ tenant_id, name, status, features: featureMap(app.store, tenant_id) })) });
     if (path === '/admins' && req.method === 'GET') return ok({ admins: listAdmins(app.store, actor) });
     if ((m = /^\/admins\/([\w-]+)\/reset-2fa$/.exec(path)) && req.method === 'POST') { resetTwoFactor(app.store, actor, m[1]); return ok(); }
+    if ((m = /^\/admins\/([\w-]+)\/temp-password$/.exec(path)) && req.method === 'POST') return ok(issueTempPassword(app.store, actor, m[1]), 201);
+    if ((m = /^\/admins\/([\w-]+)\/password$/.exec(path)) && req.method === 'PUT') { setUserPassword(app.store, actor, m[1], { password: body.password }); return ok(); }
     if ((m = /^\/admins\/([\w-]+)\/reset-link$/.exec(path)) && req.method === 'POST') { const r = issueResetToken(app.store, actor, m[1]); return ok({ ...r, path: `/admin#reset=${r.token}` }, 201); }
 
     // 自分のアカウント: パスワード変更 / 二段階認証
@@ -291,6 +307,9 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
 
     // 来店 (QRスキャン / 履歴)
     if (path === '/visits/scan' && req.method === 'POST') { const t = needTenant(), r = app.members.scanVisit(actor, t, body.code); return ok({ ...r, rewards: await app.visitRules.onVisit(t, r.member_id) }); }
+    if (path === '/scan-mode' && req.method === 'GET') return ok({ mode: app.members.scanMode(needTenant()) });
+    if (path === '/scan-mode' && req.method === 'PUT') return ok({ mode: app.members.setScanMode(actor, needTenant(), body.mode) });
+    if (path === '/visits/store-qr' && req.method === 'GET') { const t = needTenant(), r = app.members.issueStoreVisitCode(actor, t); return ok({ ...r, url: app.messaging.visitUrl(actor, t, r.code) }); }
     if (path === '/visit-rules' && req.method === 'GET') return ok({ rules: app.visitRules.list(actor, needTenant()) });
     if (path === '/visit-rules' && req.method === 'POST') return ok(app.visitRules.create(actor, needTenant(), body), 201);
     if ((m = /^\/visit-rules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'PUT') return ok(app.visitRules.update(actor, needTenant(), m[1], body));

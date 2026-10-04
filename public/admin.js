@@ -1,6 +1,6 @@
 // 管理画面 (SPA)。DOM は textContent / プロパティ代入のみで組み立て、HTML文字列は使わない。
 import { el, buildForm, collect, control } from './formkit.js';
-import { PRESETS, drawCard, loadImage, makeQr, contrast, applyPage, CARD_W, CARD_H } from './cardkit.js';
+import { PRESETS, METALS, drawCard, loadImage, makeQr, contrast, applyPage, CARD_W, CARD_H } from './cardkit.js';
 
 const root = document.getElementById('root');
 const TYPES = { TEXT: '1行テキスト', TEXTAREA: '複数行テキスト', NUMBER: '数値', DATE: '日付', TEL: '電話番号', EMAIL: 'メールアドレス', ZIP: '郵便番号', URL: 'URL',
@@ -394,10 +394,14 @@ async function cardView() {
         if (k === 'photo' && !design.background.imageId) design.background.type = 'gradient'; // 画像が無い間は色の背景にしておく
         touch(false); drawControls();
       }, design.template === k ? 'pri' : ''))), el('div', { className: 'hint' }, 'テンプレートを選んだあと、色や文字を自由に変えられます。')),
-      sec('背景', lab('種類', bindSelect([['solid', '単色'], ['gradient', 'グラデーション'], ['image', '画像']], () => bg.type, (v) => { bg.type = v; })),
-        bg.type !== 'image' ? lab(bg.type === 'solid' ? '色' : '色1', bindColor(() => bg.color1, (v) => { bg.color1 = v; })) : null,
+      sec('背景', lab('種類', bindSelect([['solid', '単色'], ['gradient', 'グラデーション'], ['metal', 'メタリック(金属調)'], ['image', '画像']], () => bg.type, (v) => { bg.type = v; if (v === 'metal') { bg.metal ??= 'gold'; design.textColor = METALS[bg.metal].text; design.accentColor = METALS[bg.metal].accent; } })),
+        bg.type === 'metal' ? [lab('金属の種類', bindSelect(Object.entries(METALS).map(([k, m]) => [k, m.label]), () => bg.metal ?? 'gold', (v) => { bg.metal = v; design.textColor = METALS[v].text; design.accentColor = METALS[v].accent; }), '選ぶと、読みやすい文字色に自動で変わります(あとから「文字と色」で変えられます)。'), lab('光の向き', bindRange(0, 360, 15, () => bg.angle, (v) => { bg.angle = v; }, '°'))] : null,
+        (bg.type !== 'image' && bg.type !== 'metal') ? lab(bg.type === 'solid' ? '色' : '色1', bindColor(() => bg.color1, (v) => { bg.color1 = v; })) : null,
         bg.type === 'gradient' ? [lab('色2', bindColor(() => bg.color2, (v) => { bg.color2 = v; })), lab('角度', bindRange(0, 360, 15, () => bg.angle, (v) => { bg.angle = v; }, '°'))] : null,
         bg.type === 'image' ? [lab('背景画像', uploadBox('background', () => bg.imageId, (v) => { bg.imageId = v; }), '横長の画像がおすすめです(自動で縮小されます)。'), lab('暗さ(文字を読みやすくします)', bindRange(0, 80, 5, () => bg.overlay, (v) => { bg.overlay = v; }, '%'))] : null),
+      sec('帯(横ライン)', el('div', { className: 'hint' }, 'カードの上・中・下に、横の帯を入れられます。表示するものだけチェックして、色と太さを選びます。'),
+        ...[['上', 0], ['中', 1], ['下', 2]].map(([t, i]) => { const b = (design.bands ??= [0, 1, 2].map(() => ({ show: false, color: '#ffffff', size: 'M' })))[i];
+          return el('div', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap' }, bindCheck(`${t}の帯`, () => b.show, (v) => { b.show = v; }), bindColor(() => b.color, (v) => { b.color = v; }), bindSelect([['S', '細い'], ['M', 'ふつう'], ['L', '太い']], () => b.size, (v) => { b.size = v; })); })),
       sec('文字と色', lab('文字の色', bindColor(() => design.textColor, (v) => { design.textColor = v; })), lab('アクセント色(線など)', bindColor(() => design.accentColor, (v) => { design.accentColor = v; })),
         lab('書体', bindSelect([['sans', 'ゴシック'], ['serif', '明朝']], () => design.font, (v) => { design.font = v; })), lab('カードの角', bindSelect([['large', '丸い'], ['small', '少し丸い'], ['none', '角ばった']], () => design.radius, (v) => { design.radius = v; }))),
       sec('ロゴ', lab('ロゴ画像', uploadBox('logo', () => design.logo.imageId, (v) => { design.logo.imageId = v; }), '背景が透明なPNGがきれいです(自動で縮小されます)。'),
@@ -798,7 +802,7 @@ async function rankView() {
   const drawPreview = () => previewBox.replaceChildren(...st.ranks.map((r, i) => {
     const c = document.createElement('canvas'); c.style.cssText = 'width:100%;height:auto;display:block;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.25)';
     drawCard(c, design, { shop: cfg.shop ?? ST.me.tenantName ?? '', name: '山田 太郎', nameParts: { family: '山田', given: '太郎' }, memberNumber: '000123', registeredAt: new Date().toISOString(), lastVisitAt: new Date().toISOString(), visitCount: r.min_visits,
-      rank: { title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color, color1: r.card_color1, color2: r.card_color2 } }, { logo: imgs.logo, bg: imgs.bg });
+      rank: { title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color, color1: r.card_color1, color2: r.card_color2, metal: r.card_metal } }, { logo: imgs.logo, bg: imgs.bg });
     return el('div', {}, c, el('div', { className: 'hint', style: 'text-align:center;margin-top:3px' }, `${i + 1}. ${r.title || ''}(${r.min_visits}回〜)`));
   }));
   const list = el('div');
@@ -813,22 +817,23 @@ async function rankView() {
     const on = el('input', { type: 'checkbox', checked: !!r.card_color1, style: 'width:auto;margin:0', onchange: () => { if (on.checked) { r.card_color1 = c1.value; r.card_color2 = c2.value; } else { r.card_color1 = ''; r.card_color2 = ''; } c1.disabled = c2.disabled = !on.checked; c1.style.opacity = c2.style.opacity = on.checked ? 1 : .35; changed(); } });
     const c1 = el('input', { type: 'color', value: r.card_color1 || '#222222', disabled: !r.card_color1, style: CS + (r.card_color1 ? '' : ';opacity:.35'), oninput: () => { r.card_color1 = c1.value; changed(); } });
     const c2 = el('input', { type: 'color', value: r.card_color2 || r.card_color1 || '#444444', disabled: !r.card_color1, style: CS + (r.card_color1 ? '' : ';opacity:.35'), oninput: () => { r.card_color2 = c2.value; changed(); } });
+    const ms = el('select', { style: 'width:auto;padding:4px 6px', title: 'メタリック(金属調)にすると、上の2色より優先されます', onchange: () => { r.card_metal = ms.value; changed(); } }, el('option', { value: '' }, 'メタリックなし'), Object.entries(METALS).map(([k, m]) => el('option', { value: k, selected: r.card_metal === k }, m.label)));
     const line = (...c) => el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px' }, ...c);
     return el('div', { style: 'padding:8px 0;border-top:1px solid #eceff3' },
       line(el('b', { style: 'width:20px' }, String(i + 1)), t, n, lbl('回の来店から'), i === 0 ? null : el('span', { style: 'display:inline-flex;align-items:center;gap:6px;margin-left:8px' }, lbl('最終来店から'), dd, lbl('日で1つ下がる')), el('span', { className: 'sp' }), i === 0 ? null : btn('×', () => { st.ranks.splice(i, 1); draw(); changed(); }, 'sm')),
-      line(el('span', { style: 'width:20px' }), lbl('★の色'), sc, el('label', { style: 'display:inline-flex;align-items:center;gap:5px;margin-left:10px' }, on, lbl('カードの色を変える')), lbl('左上'), c1, lbl('右下'), c2));
+      line(el('span', { style: 'width:20px' }), lbl('★の色'), sc, el('label', { style: 'display:inline-flex;align-items:center;gap:5px;margin-left:10px' }, on, lbl('カードの色を変える')), lbl('左上'), c1, lbl('右下'), c2, lbl('または'), ms));
   })); };
   draw(); drawPreview();
   const enabled = el('input', { type: 'checkbox', checked: st.enabled, style: 'width:auto;margin:0', onchange: () => { st.enabled = enabled.checked; } });
   const showNext = el('input', { type: 'checkbox', checked: st.show_next, style: 'width:auto;margin:0', onchange: () => { st.show_next = showNext.checked; } });
-  const add = () => { if (st.ranks.length >= 10) return; const last = st.ranks.at(-1); st.ranks.push({ title: `ランク${st.ranks.length + 1}`, min_visits: (last?.min_visits ?? 0) + 10, star_color: '#f5b301', card_color1: '', card_color2: '', demote_days: '' }); draw(); changed(); };
+  const add = () => { if (st.ranks.length >= 10) return; const last = st.ranks.at(-1); st.ranks.push({ title: `ランク${st.ranks.length + 1}`, min_visits: (last?.min_visits ?? 0) + 10, star_color: '#f5b301', card_color1: '', card_color2: '', card_metal: '', demote_days: '' }); draw(); changed(); };
   const save = run(err, async () => { ok.textContent = ''; const r = await api('/ranks', { method: 'PUT', body: { enabled: st.enabled, show_next: st.show_next, ranks: st.ranks.map((x) => ({ ...x, min_visits: Number(x.min_visits), demote_days: x.demote_days === '' || x.demote_days === undefined ? '' : Number(x.demote_days) })) } }); st.ranks = structuredClone(r.ranks); draw(); drawPreview(); ok.textContent = '保存しました'; });
   const chk = (box, text) => el('label', { style: 'display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer' }, box, text);
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '会員ランク'),
     el('div', { className: 'hint', style: 'margin-bottom:8px' }, '来店回数に応じて、会員証に称号と★(ランクが上がるごとに1つ増える)が出ます。ランクごとに★の色とカードの色を変えられます(背景が画像のカードは色が変わりません)。'),
     chk(enabled, el('b', {}, '会員ランクを有効にする')), chk(showNext, '会員画面に「次のランクまであと○回」を表示する'),
     el('div', { className: 'hint', style: 'margin-top:6px' }, '「最終来店から○日で1つ下がる」を入れると、その日数を超えて来店がないとき、1つ下のランクになります(来店するとすぐに戻ります)。空欄ならランクダウンしません。'),
-    list, el('div', { className: 'row', style: 'margin-top:8px' }, btn('＋ ランクを追加', add, 'sm'), btn('初期値に戻す', () => { st.ranks = DEFAULTS.map(([title, min_visits, star_color]) => ({ title, min_visits, star_color, card_color1: '', card_color2: '', demote_days: '' })); draw(); changed(); }, 'sm'), el('span', { className: 'sp' }), btn('保存', save, 'pri')), err, ok),
+    list, el('div', { className: 'row', style: 'margin-top:8px' }, btn('＋ ランクを追加', add, 'sm'), btn('初期値に戻す', () => { st.ranks = DEFAULTS.map(([title, min_visits, star_color]) => ({ title, min_visits, star_color, card_color1: '', card_color2: '', card_metal: '', demote_days: '' })); draw(); changed(); }, 'sm'), el('span', { className: 'sp' }), btn('保存', save, 'pri')), err, ok),
     el('div', { className: 'card' }, el('h2', {}, 'プレビュー(ランクごとの会員証)'), el('div', { className: 'hint', style: 'margin-bottom:8px' }, '色を変えると、すぐに反映されます。「左上」「右下」は、カードの背景のグラデーションの両端の色です。'), previewBox)));
 }
 

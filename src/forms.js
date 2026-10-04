@@ -1,7 +1,7 @@
 // 店舗ごとの動的登録フォーム管理 (項目定義 = custom_fields)
 import { randomBytes } from 'node:crypto';
 import { ValidationError, assertSafeText } from './sanitize.js';
-import { FIELD_TYPES, CHOICE_TYPES, SENSITIVITY, VISIBILITY } from './fieldTypes.js';
+import { FIELD_TYPES, CHOICE_TYPES, SENSITIVITY, VISIBILITY, INPUT_SCRIPTS } from './fieldTypes.js';
 import { require_, canSeeField } from './permissions.js';
 import { audit } from './audit.js';
 import { assertNotBanned } from './master.js';
@@ -130,6 +130,7 @@ export class FormService {
       }
       if (f.allow_other && !vals.has('その他')) throw new ValidationError('「その他」入力を許可するには選択肢に「その他」が必要です');
     } else if (f.options?.length) throw new ValidationError('選択式以外に選択肢は設定できません');
+    if (f.input_script && (!INPUT_SCRIPTS.includes(f.input_script) || f.field_type !== 'TEXT')) throw new ValidationError('入力する文字の指定は、1行の文字項目(ひらがな/カタカナ/アルファベット)だけに設定できます');
     if (f.required && f.visibility !== 'USER') throw new ValidationError('会員に表示しない項目は必須にできません');
     // 配信への同意は任意でなければならない (同意しないと登録できない形にしない)
     if (f.consent_target && f.required) throw new ValidationError('配信への同意は必須にできません(任意のチェックボックスにしてください)');
@@ -154,7 +155,7 @@ export class FormService {
     }
     return this.#insert(actor, tenantId, {
       master_key: masterKey, field_name: m.label, field_type: m.field_type, options: m.options, purpose_text: m.purpose_text,
-      sensitivity: m.sensitivity, consent_target: m.consent_target || null, ...overrides,
+      sensitivity: m.sensitivity, consent_target: m.consent_target || null, input_script: m.input_script || '', ...overrides,
     });
   }
 
@@ -169,7 +170,7 @@ export class FormService {
     const options = (def.options ?? []).map((o, i) => (typeof o === 'string' ? { value: o, label: o, order: i + 1 } : { order: i + 1, label: o.value, ...o }));
     const row = {
       master_key: null, required: false, enabled: true, placeholder: '', purpose_text: '', user_editable: true, visibility: 'USER',
-      sensitivity: 'PERSONAL', allow_other: false, consent_target: null, ...def, options,
+      sensitivity: 'PERSONAL', allow_other: false, consent_target: null, input_script: '', ...def, options,
     };
     this.#checkDef(tenantId, row);
     const field = { ...row, field_id: nextId(this.store, tenantId), tenant_id: tenantId,
@@ -190,7 +191,7 @@ export class FormService {
   updateField(actor, tenantId, fieldId, patch) {
     require_(actor, 'FORM_EDIT', tenantId);
     const cur = this.#get(tenantId, fieldId);
-    const ALLOWED = ['field_name', 'required', 'placeholder', 'purpose_text', 'user_editable', 'visibility', 'allow_other', 'options', 'consent_target'];
+    const ALLOWED = ['field_name', 'required', 'placeholder', 'purpose_text', 'user_editable', 'visibility', 'allow_other', 'options', 'consent_target', 'input_script'];
     const bad = Object.keys(patch).filter((k) => !ALLOWED.includes(k));
     if (bad.length) throw new ValidationError(`変更できない属性: ${bad.join(', ')}`);
     const next = { ...patch };

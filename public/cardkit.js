@@ -19,6 +19,17 @@ export const PRESETS = {
   photo: { label: '写真', design: { background: { type: 'image', overlay: 35 }, textColor: '#ffffff', accentColor: '#ffffff', radius: 'large', font: 'sans', page: { accentColor: '#333333', backgroundColor: '#f4f5f7' } } },
 };
 
+// メタリック(金属調): 光の反射を模した多段のグラデーション。text は読みやすい文字色、accent は線の色
+export const METALS = {
+  gold: { label: 'ゴールド', stops: ['#8f6410', '#e9c34b', '#fff4b8', '#c99a2e', '#f6df7a', '#a87b13', '#fbe9a0', '#8f6410'], text: '#2b2100', accent: '#7a5200', page: '#a87b13' },
+  silver: { label: 'シルバー', stops: ['#8d94a3', '#d9dde5', '#ffffff', '#b4bac7', '#eef0f4', '#9aa1b0', '#f4f6f9', '#8d94a3'], text: '#1f2430', accent: '#4b5565', page: '#6b7385' },
+  bronze: { label: 'ブロンズ', stops: ['#6e3d17', '#c98a4b', '#f0b987', '#a8672f', '#e0a066', '#80481c', '#e8b07c', '#6e3d17'], text: '#2a1608', accent: '#4a2810', page: '#8a5426' },
+  platinum: { label: 'プラチナ', stops: ['#7d8895', '#cfd8e3', '#f8fbff', '#aab6c4', '#e6edf5', '#8794a3', '#f1f6fb', '#7d8895'], text: '#1c2530', accent: '#3b4a5c', page: '#5f6d7e' },
+  rosegold: { label: 'ローズゴールド', stops: ['#9a5a54', '#e8b4a8', '#ffe3da', '#c9867b', '#f4cabd', '#a8645c', '#ffdacf', '#9a5a54'], text: '#3b1a1a', accent: '#6b2f2b', page: '#b0675d' },
+  chrome: { label: 'ブラッククローム', stops: ['#0b0b0d', '#3a3d45', '#8a8f9b', '#1a1b20', '#4a4e58', '#0f1013', '#6e7380', '#0b0b0d'], text: '#f1f1f1', accent: '#c9ced8', page: '#2a2c33' },
+};
+for (const [k, m] of Object.entries(METALS)) PRESETS[`metal_${k}`] = { label: m.label, design: { background: { type: 'metal', metal: k, angle: 135, overlay: 0 }, textColor: m.text, accentColor: m.accent, radius: 'large', font: 'sans', page: { accentColor: m.page, backgroundColor: '#f4f5f7' } } };
+
 // #RRGGBB の上に載せる文字色 (黒 or 白)
 export function contrast(hex) {
   const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
@@ -60,7 +71,26 @@ function spaced(ctx, text, x, y, gap, align = 'left') {
   ctx.textAlign = prev;
   return total;
 }
+function drawMetal(ctx, bg) {
+  const m = METALS[bg.metal] ?? METALS.gold, a = (((bg.angle ?? 135) - 90) * Math.PI) / 180, len = Math.abs(CARD_W * Math.cos(a)) + Math.abs(CARD_H * Math.sin(a));
+  const cx = CARD_W / 2, cy = CARD_H / 2, dx = (Math.cos(a) * len) / 2, dy = (Math.sin(a) * len) / 2;
+  const g = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+  m.stops.forEach((c, i) => g.addColorStop(i / (m.stops.length - 1), c));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, CARD_W, CARD_H);
+  // ヘアライン(ブラシ仕上げ): 毎回同じ模様になるよう、決まった乱数で細い横線を重ねる
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let y = 0; y < CARD_H; y += 2) { ctx.fillStyle = rnd() > 0.5 ? `rgba(255,255,255,${0.02 + rnd() * 0.05})` : `rgba(0,0,0,${0.02 + rnd() * 0.05})`; ctx.fillRect(0, y, CARD_W, 1); }
+  const s = ctx.createLinearGradient(0, 0, CARD_W, CARD_H); // 斜めの強い反射
+  s.addColorStop(0.32, 'rgba(255,255,255,0)'); s.addColorStop(0.42, 'rgba(255,255,255,0.28)'); s.addColorStop(0.5, 'rgba(255,255,255,0)'); s.addColorStop(0.72, 'rgba(255,255,255,0.16)'); s.addColorStop(0.8, 'rgba(255,255,255,0)');
+  ctx.fillStyle = s; ctx.fillRect(0, 0, CARD_W, CARD_H);
+}
+// 横の帯(上・中・下)。背景の上、文字やロゴの下に描く
+const BAND = { thick: { S: 10, M: 22, L: 40 }, y: [120, 345, CARD_H - 30] };
+function drawBands(ctx, bands = []) {
+  bands.forEach((b, i) => { if (!b?.show) return; const h = BAND.thick[b.size] ?? 22; ctx.fillStyle = b.color; ctx.fillRect(0, BAND.y[i] - h / 2, CARD_W, h); });
+}
 function drawBackground(ctx, bg, images) {
+  if (bg.type === 'metal') { drawMetal(ctx, bg); return; }
   if (bg.type === 'image' && images.bg) {
     const im = images.bg, s = Math.max(CARD_W / im.width, CARD_H / im.height), w = im.width * s, h = im.height * s;
     ctx.drawImage(im, (CARD_W - w) / 2, (CARD_H - h) / 2, w, h);
@@ -86,12 +116,13 @@ export const formatName = (name, order) => { const parts = String(name ?? '').tr
 export function drawCard(canvas, design, data, { logo = null, bg = null, qr = null, privacy = false } = {}) {
   canvas.width = CARD_W; canvas.height = CARD_H;
   // ランクにカード色が設定されていれば、背景(画像以外)をその色にする。文字色は背景に合わせて白/黒を自動で選ぶ
-  const rank = data.rank ?? null, recolor = !!(rank?.color1 && design.background.type !== 'image');
-  const bgCfg = recolor ? { ...design.background, type: 'gradient', color1: rank.color1, color2: rank.color2 || rank.color1, angle: design.background.angle ?? 135 } : design.background;
-  const ctx = canvas.getContext('2d'), font = FONTS[design.font] ?? FONTS.sans, tc = recolor ? contrast(rank.color1) : design.textColor, accent = design.accentColor;
+  const rank = data.rank ?? null, rankMetal = !!(rank?.metal && METALS[rank.metal] && design.background.type !== 'image'), recolor = rankMetal || !!(rank?.color1 && design.background.type !== 'image');
+  const bgCfg = rankMetal ? { ...design.background, type: 'metal', metal: rank.metal } : recolor ? { ...design.background, type: 'gradient', color1: rank.color1, color2: rank.color2 || rank.color1, angle: design.background.angle ?? 135 } : design.background;
+  const ctx = canvas.getContext('2d'), font = FONTS[design.font] ?? FONTS.sans, tc = rankMetal ? METALS[rank.metal].text : recolor ? contrast(rank.color1) : design.textColor, accent = design.accentColor;
   ctx.clearRect(0, 0, CARD_W, CARD_H);
   ctx.save(); roundRect(ctx, 0, 0, CARD_W, CARD_H, RADIUS[design.radius] ?? 56); ctx.clip();
   drawBackground(ctx, bgCfg, { bg });
+  drawBands(ctx, design.bands);
   ctx.textBaseline = 'alphabetic'; ctx.fillStyle = tc;
 
   // ---- 上段: ロゴ と タイトル ----

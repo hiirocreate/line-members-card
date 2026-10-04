@@ -26,6 +26,6 @@ export function setFeatures(store, actor, tenantId, input) {
 }
 
 // 管理APIのパス → 機能。ここに載っていないパスは制限されない
-const ROUTES = [[/^\/card(\/|$)/, 'card'], [/^\/visits\/scan$/, 'scan'], [/^\/members\/\w+\/visit$/, 'scan'], [/^\/messages(\/|$)/, 'messages'], [/^\/schedules(\/|$)/, 'schedule'],
+const ROUTES = [[/^\/card(\/|$)/, 'card'], [/^\/visits\/(scan|store-qr)$/, 'scan'], [/^\/scan-mode$/, 'scan'], [/^\/members\/\w+\/visit$/, 'scan'], [/^\/messages(\/|$)/, 'messages'], [/^\/schedules(\/|$)/, 'schedule'],
   [/^\/birthday(\/|$)/, 'birthday'], [/^\/visit-rules(\/|$)/, 'visitrules'], [/^\/coupons(\/|$)/, 'coupons'], [/^\/ranks?(\/|$)/, 'rank']];
 export const featureForPath = (path) => ROUTES.find(([re]) => re.test(path))?.[1] ?? null;

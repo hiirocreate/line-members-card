@@ -11,7 +11,8 @@ const now = () => new Date().toISOString();
 export const UNREGISTERED = '未登録';
 
 // 姓・名の項目名 (「姓」「姓(漢字)」など。読み仮名の項目や「氏名」は含めない)
-const NOT_KANA = (re) => ({ test: (t) => re.test(t) && !/カナ|かな|ふりがな|フリガナ|ｶﾅ|kana/i.test(t) });
+const READING = /カナ|かな|ふりがな|フリガナ|ｶﾅ|kana|読み|ヨミ|yomi|ローマ字|romaji/i; // 読み仮名の項目(氏名・姓・名としては扱わない)
+const NOT_KANA = (re) => ({ test: (t) => re.test(t) && !READING.test(t) });
 const FAMILY_LABEL = NOT_KANA(/^(姓|苗字|名字|氏(?!名))/), GIVEN_LABEL = NOT_KANA(/^名(?:[（(].*[）)])?$/);
 export class MemberService {
   constructor(store, forms, vault = null) { this.store = store; this.forms = forms; this.vault = vault; this.usedNonces = new Map(); }
@@ -145,7 +146,7 @@ export class MemberService {
   cardName(tenantId, m) {
     if (m.name) return m.name;
     const vals = this.#valuesOf(tenantId, m.member_id);
-    for (const f of this.forms.fields(tenantId).filter((x) => x.field_type === 'TEXT' && /氏名|名前|なまえ|ネーム/.test(x.field_name))) {
+    for (const f of this.forms.fields(tenantId).filter((x) => x.field_type === 'TEXT' && /氏名|名前|なまえ|ネーム/.test(x.field_name) && !READING.test(x.field_name))) {
       const v = this.#read(m, f, vals);
       if (typeof v === 'string' && v) return v;
     }
@@ -181,11 +182,14 @@ export class MemberService {
   // ---- 来店記録 ----
   recordVisit(actor, tenantId, memberId, { method = 'MANUAL' } = {}) {
     require_(actor, 'MEMBER_EDIT', tenantId);
+    return this.#visit(actor.id, tenantId, memberId, method);
+  }
+  #visit(by, tenantId, memberId, method) {
     const m = this.#member(tenantId, memberId);
     if (m.status === 'WITHDRAWN') throw new ValidationError('退会済みの会員です');
     const at = now();
     this.store.update('members', (r) => r.tenant_id === tenantId && r.member_id === memberId, { visit_count: m.visit_count + 1, last_visit_at: at });
-    this.store.insert('visits', { visit_id: randomUUID(), tenant_id: tenantId, member_id: memberId, visited_at: at, method, recorded_by: actor.id });
+    this.store.insert('visits', { visit_id: randomUUID(), tenant_id: tenantId, member_id: memberId, visited_at: at, method, recorded_by: by });
     return { member_number: m.member_number, visit_count: m.visit_count + 1, member_id: memberId };
   }
   visits(actor, tenantId, limit = 50) {
@@ -201,6 +205,31 @@ export class MemberService {
     if (!m || m.status === 'WITHDRAWN') throw new ValidationError('会員が存在しません');
     const exp = Date.now() + ttlMs;
     return { code: `MC1.${this.vault.sign('visit', { t: tenantId, m: m.member_id, e: exp, n: randomBytes(9).toString('base64url') })}`, expiresAt: exp };
+  }
+  // ---- 来店の方式: 会員のQRを店舗が読み取る(MEMBER_QR) / 店舗のQRを会員が読み取る(STORE_QR) ----
+  scanMode(tenantId) { return this.store.find('tenants', (t) => t.tenant_id === tenantId)?.scan_mode === 'STORE_QR' ? 'STORE_QR' : 'MEMBER_QR'; }
+  setScanMode(actor, tenantId, mode) {
+    require_(actor, 'LINE_SETTINGS', tenantId);
+    if (!['MEMBER_QR', 'STORE_QR'].includes(mode)) throw new ValidationError('来店の方式が不正です');
+    this.store.update('tenants', (t) => t.tenant_id === tenantId, { scan_mode: mode });
+    audit(this.store, { tenant_id: tenantId, actor, action: 'SCAN_MODE', detail: { mode } });
+    return mode;
+  }
+  // 店舗のQR(店頭のタブレットなどに表示)。60秒で切り替わる。会員が読み取って、自分の来店を記録する
+  issueStoreVisitCode(actor, tenantId, ttlMs = 60_000) {
+    require_(actor, 'MEMBER_EDIT', tenantId);
+    const exp = Date.now() + ttlMs;
+    return { code: `MS1.${this.vault.sign('storevisit', { t: tenantId, e: exp, n: randomBytes(6).toString('base64url') })}`, expiresAt: exp };
+  }
+  visitByStoreCode(tenantId, userId, code, { cooldownMin = 30 } = {}) {
+    const p = typeof code === 'string' && code.startsWith('MS1.') ? this.vault.verify('storevisit', code.slice(4)) : null;
+    if (!p || !(p.e > Date.now())) throw new ValidationError('QRコードの期限が切れています。店頭のQRコードをもう一度読み取ってください');
+    if (p.t !== tenantId) throw new ValidationError('他店舗のQRコードです');
+    if (this.scanMode(tenantId) !== 'STORE_QR') throw new ValidationError('この店舗では、会員証のQRを店舗で読み取る方式です');
+    const m = this.findByUser(tenantId, userId);
+    if (!m || m.status === 'WITHDRAWN') throw new ValidationError('会員登録が必要です');
+    if (m.last_visit_at && Date.now() - Date.parse(m.last_visit_at) < cooldownMin * 60_000) throw new ValidationError(`${cooldownMin}分以内に来店記録済みです`);
+    return this.#visit(`member:${m.member_id}`, tenantId, m.member_id, 'STORE_QR');
   }
   // 店舗スタッフが会員証QRを読み取って来店を記録 (自店舗の会員のみ / 使い捨て / 連続記録の抑止)
   scanVisit(actor, tenantId, code, { cooldownMin = 30 } = {}) {

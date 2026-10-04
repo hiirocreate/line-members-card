@@ -13,7 +13,8 @@ const MIMES = { 'image/png': (b) => b.subarray(0, 4).equals(Buffer.from([0x89, 0
 
 export const DEFAULT_DESIGN = {
   template: 'classic',
-  background: { type: 'gradient', color1: '#14213d', color2: '#233a6b', angle: 135, imageId: null, overlay: 0 },
+  background: { type: 'gradient', color1: '#14213d', color2: '#233a6b', angle: 135, imageId: null, overlay: 0, metal: 'gold' },
+  bands: [{ show: false, color: '#ffffff', size: 'M' }, { show: false, color: '#ffffff', size: 'M' }, { show: false, color: '#ffffff', size: 'M' }], // 横の帯(上・中・下)
   textColor: '#ffffff', accentColor: '#fca311',
   shopName: { show: true, text: '', size: 'M', align: 'left' },
   title: 'MEMBER CARD',
@@ -23,9 +24,10 @@ export const DEFAULT_DESIGN = {
   page: { accentColor: '#06c755', backgroundColor: '#f4f5f7', welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true },
 };
 
+export const METALS = ['gold', 'silver', 'bronze', 'platinum', 'rosegold', 'chrome']; // メタリック(金属調)の種類
 const ENUM = {
-  bgType: ['solid', 'gradient', 'image'], size: ['S', 'M', 'L'], align: ['left', 'center'], pos: ['top-left', 'top-center', 'top-right'],
-  qr: ['below', 'inside'], nameOrder: ['asis', 'swap'], radius: ['none', 'small', 'large'], font: ['sans', 'serif'], template: ['classic', 'dark', 'minimal', 'sakura', 'forest', 'photo', 'custom'],
+  metal: METALS, bgType: ['solid', 'gradient', 'image', 'metal'], size: ['S', 'M', 'L'], align: ['left', 'center'], pos: ['top-left', 'top-center', 'top-right'],
+  qr: ['below', 'inside'], nameOrder: ['asis', 'swap'], radius: ['none', 'small', 'large'], font: ['sans', 'serif'], template: ['classic', 'dark', 'minimal', 'sakura', 'forest', 'photo', ...METALS.map((m) => `metal_${m}`), 'custom'],
 };
 
 // 入力を検証し、不足を既定値で補った完全なデザインを返す。未知の値・不正な色・他店舗の画像は拒否。
@@ -47,9 +49,10 @@ export function normalizeDesign(input, { hasAsset = () => false } = {}) {
   const out = {
     template: pick(d.template, ENUM.template, D.template, 'テンプレート'),
     background: {
-      type: pick(b.type, ENUM.bgType, D.background.type, '背景の種類'), color1: color(b.color1, D.background.color1, '背景色1'), color2: color(b.color2, D.background.color2, '背景色2'),
+      metal: pick(b.metal, ENUM.metal, D.background.metal, 'メタリックの種類'), type: pick(b.type, ENUM.bgType, D.background.type, '背景の種類'), color1: color(b.color1, D.background.color1, '背景色1'), color2: color(b.color2, D.background.color2, '背景色2'),
       angle: num(b.angle, D.background.angle, 0, 360, '背景の角度'), imageId: img(b.imageId, '背景'), overlay: num(b.overlay, D.background.overlay, 0, 80, '背景の暗さ'),
     },
+    bands: D.bands.map((def, i) => { const x = Array.isArray(d.bands) ? d.bands[i] ?? {} : {}; return { show: bool(x.show, def.show), color: color(x.color, def.color, `帯${i + 1}の色`), size: pick(x.size, ENUM.size, def.size, `帯${i + 1}の太さ`) }; }),
     textColor: color(d.textColor, D.textColor, '文字色'), accentColor: color(d.accentColor, D.accentColor, 'アクセント色'),
     shopName: { show: bool(sn.show, D.shopName.show), text: text(sn.text, D.shopName.text, 30, '店舗名'), size: pick(sn.size, ENUM.size, D.shopName.size, '店舗名の大きさ'), align: pick(sn.align, ENUM.align, D.shopName.align, '店舗名の位置') },
     title: text(d.title, D.title, 24, 'カードのタイトル'),

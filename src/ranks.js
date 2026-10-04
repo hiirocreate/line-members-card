@@ -2,6 +2,7 @@
 import { ValidationError, assertSafeText } from './sanitize.js';
 import { require_ } from './permissions.js';
 import { audit } from './audit.js';
+import { METALS } from './card.js';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 export const DEFAULT_RANKS = [
@@ -29,9 +30,10 @@ export class RankService {
       if (!Number.isInteger(min) || min < 0 || min > 100000) errors.push(`${i + 1}番目: 来店回数は0以上の整数で指定してください`);
       const color = (k, label, optional) => { const v = r?.[k] ?? ''; if (v === '' && optional) return ''; if (typeof v !== 'string' || !HEX.test(v)) { errors.push(`${i + 1}番目: ${label}は #RRGGBB で指定してください`); return ''; } return v.toLowerCase(); };
       const c1 = color('card_color1', 'カードの色1', true), c2 = color('card_color2', 'カードの色2', true);
+      const metal = r?.card_metal ?? ''; if (metal !== '' && !METALS.includes(metal)) errors.push(`${i + 1}番目: メタリックの種類が不正です`);
       const dd = r?.demote_days === '' || r?.demote_days === undefined || r?.demote_days === null ? '' : Number(r.demote_days);
       if (dd !== '' && (!Number.isInteger(dd) || dd < 1 || dd > 3650)) errors.push(`${i + 1}番目: ランクダウンの日数は1〜3650の整数で指定してください`);
-      return { title, min_visits: min, star_color: color('star_color', '☆の色', false), card_color1: c1, card_color2: c1 ? (c2 || c1) : '', demote_days: i === 0 ? '' : dd };
+      return { title, min_visits: min, star_color: color('star_color', '☆の色', false), card_color1: c1, card_color2: c1 ? (c2 || c1) : '', card_metal: METALS.includes(metal) ? metal : '', demote_days: i === 0 ? '' : dd };
     });
     if (ranks.length && ranks[0].min_visits !== 0) errors.push('最初のランクの来店回数は0にしてください');
     for (let i = 1; i < ranks.length; i++) if (!(ranks[i].min_visits > ranks[i - 1].min_visits)) { errors.push('来店回数は、ランクが上がるごとに大きくしてください'); break; }
@@ -59,7 +61,7 @@ export class RankService {
     const earned = idx;
     while (idx > 0 && Number(c.ranks[idx].demote_days) > 0 && idle > Number(c.ranks[idx].demote_days)) idx--;
     const r = c.ranks[idx], nx = c.ranks[idx + 1], demoted = idx < earned;
-    return { title: r.title, stars: idx + 1, starColor: r.star_color, color1: r.card_color1 || '', color2: r.card_color2 || '', demoted,
+    return { title: r.title, stars: idx + 1, starColor: r.star_color, color1: r.card_color1 || '', color2: r.card_color2 || '', metal: r.card_metal || '', demoted,
       next: c.show_next !== false && nx ? { title: nx.title, remaining: Math.max(1, nx.min_visits - n) } : null };
   }
 }

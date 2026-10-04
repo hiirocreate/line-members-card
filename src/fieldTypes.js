@@ -5,6 +5,8 @@ export const FIELD_TYPES = ['TEXT', 'TEXTAREA', 'NUMBER', 'DATE', 'TEL', 'EMAIL'
 export const CHOICE_TYPES = ['SELECT', 'MULTI_SELECT', 'RADIO'];
 export const SENSITIVITY = ['NORMAL', 'PERSONAL', 'SENSITIVE'];
 export const VISIBILITY = ['USER', 'STAFF', 'ADMIN', 'OPERATOR', 'SYSTEM'];
+export const INPUT_SCRIPTS = ['', 'hiragana', 'katakana', 'alphabet']; // 読み仮名などの入力文字の指定
+export const SCRIPT_LABEL = { hiragana: 'ひらがな', katakana: 'カタカナ', alphabet: 'アルファベット' };
 export const ADDRESS_PARTS = ['postal', 'prefecture', 'city', 'street'];
 
 const isEmpty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
@@ -16,6 +18,16 @@ function validDate(s) {
   return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
 }
 
+// ひらがな/カタカナの項目は、もう一方の文字で入力されても自動で変換する。アルファベットの項目は、全角の英字を半角にそろえる。
+const toHira = (s) => s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+const toKata = (s) => s.replace(/[ぁ-ゖ]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
+function normalizeScript(s, script, bad) {
+  const sp = s.replace(/[\s\u3000]+/g, ' ');
+  if (script === 'hiragana') { const v = toHira(sp); if (!/^[ぁ-ゖー・ ]+$/.test(v)) bad('ひらがなで入力してください'); return v; }
+  if (script === 'katakana') { const v = toKata(sp); if (!/^[ァ-ヶー・ ]+$/.test(v)) bad('カタカナで入力してください'); return v; }
+  if (script === 'alphabet') { const v = sp.normalize('NFKC'); if (!/^[A-Za-z .'\-]+$/.test(v)) bad('アルファベットで入力してください'); return v; }
+  return sp;
+}
 // 検証して正規化済みの値を返す。不正なら ValidationError。空値は null。
 export function validateValue(field, raw) {
   const label = field.field_name;
@@ -28,7 +40,11 @@ export function validateValue(field, raw) {
   const str = () => { if (typeof raw !== 'string') bad('文字列で入力してください'); return raw.trim(); };
   const optionValues = () => new Set((field.options ?? []).map((o) => o.value));
   switch (field.field_type) {
-    case 'TEXT': { const s = str(); if (s.length > 200) bad('200文字以内'); return s; }
+    case 'TEXT': {
+      let s = str(); if (s.length > 200) bad('200文字以内');
+      if (field.input_script) s = normalizeScript(s, field.input_script, bad);
+      return s;
+    }
     case 'TEXTAREA': { const s = str(); if (s.length > 2000) bad('2000文字以内'); return s; }
     case 'NUMBER': {
       const n = typeof raw === 'number' ? raw : Number(String(raw).trim());

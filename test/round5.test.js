@@ -133,3 +133,11 @@ test('カードの読み仮名と裏面QR: 設定・読み仮名の取得・運�
   setFeatures(app.store, OP, T, { qrflip: false }); assert.equal(featureOn(app.store, T, 'qrflip'), false);
   assert.equal(app.card.get(T).design.qr, 'flip'); // 保存済みの値はそのまま(再度オンにすれば戻る)
 });
+
+test('裏面QRの位置調整: 範囲・大きさの検証と既定値', async () => {
+  const { normalizeDesign } = await import('../src/card.js');
+  assert.deepEqual(normalizeDesign({}).qrBack, { x: 0, y: 0, size: 'M', label: true });
+  assert.deepEqual(normalizeDesign({ qrBack: { x: 25, y: -10, size: 'L', label: false } }).qrBack, { x: 25, y: -10, size: 'L', label: false });
+  const bad = (qb, re) => assert.throws(() => normalizeDesign({ qrBack: qb }), (e) => e.details.some((m) => re.test(m)));
+  bad({ x: 99 }, /横の位置/); bad({ y: -99 }, /縦の位置/); bad({ size: 'XL' }, /大きさ/);
+});

@@ -373,7 +373,7 @@ async function cardView() {
   const frame = el('iframe', { src: '/app?preview=1', title: '会員画面のプレビュー', style: 'width:390px;height:780px;border:0;background:transparent;transform:scale(.76);transform-origin:top left' }); // 実機(約390px幅)の表示を縮小して見せる
   const phone = el('div', { className: 'phone', style: 'padding:0;overflow:hidden;max-height:none;height:593px' }, frame);
   const err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' }), state = el('span', { className: 'hint' }, '');
-  let frameReady = false;
+  let frameReady = false, previewBack = false; // previewBack: プレビューを裏面にして確認する
   window.addEventListener('message', (e) => { if (e.origin === location.origin && e.source === frame.contentWindow && e.data?.type === 'preview-ready') { frameReady = true; redraw(); } });
   const rankCfg = featOn('rank') && can('CARD_DESIGN') ? await api('/ranks') : null;
   const sampleRank = () => { // 設定中のランクのうち、来店12回のときのもの (会員画面と同じ計算)
@@ -390,7 +390,7 @@ async function cardView() {
     const me = { registered: true, shop: server.tenantName, member_number: '000123', last_visit_at: new Date().toISOString(), visit_count: 12, registered_at: sample.registeredAt,
       items: [{ field_id: 'a', label: '氏名', value: '山田 太郎' }, { field_id: 'b', label: '電話番号', value: '090XXXXXXXX' }], consents: { LINE: true }, prefs: { news: true, coupon: true, birthday: true },
       rank, card: design, card_data: { name: '山田 太郎', parts: sample.nameParts, reading: { parts: sample.readingParts }, registered_at: sample.registeredAt }, shopcardUrl: 'https://line.me/', notice: null, sampleCoupon: featOn('coupons') };
-    frame.contentWindow.postMessage({ type: 'preview', me, assetUrls: urls }, location.origin);
+    frame.contentWindow.postMessage({ type: 'preview', me, assetUrls: urls, back: design.qr === 'flip' && previewBack }, location.origin);
   };
   const touch = (custom = true) => { if (custom) design.template = 'custom'; dirty = true; state.textContent = '未保存の変更があります'; ok.textContent = ''; redraw(); };
 
@@ -448,7 +448,14 @@ async function cardView() {
         bindCheck('氏名の読み仮名(氏名の上に小さく表示)', () => design.fields.reading, (v) => { design.fields.reading = v; }),
         lab('氏名の並び順', bindSelect([['asis', '登録されたとおり(例: 山田 太郎)'], ['swap', '姓と名を入れ替える(例: 太郎 山田)']], () => design.fields.nameOrder ?? 'asis', (v) => { design.fields.nameOrder = v; }), '姓と名が別の項目(マスタの「姓」「名」)のときは、その2項目を並べ替えて表示します。1つの氏名項目のときは、姓と名の間に空白があるときだけ入れ替わります。'), bindCheck('登録日', () => design.fields.registeredAt, (v) => { design.fields.registeredAt = v; }),
         bindCheck('最終来店日', () => design.fields.lastVisit, (v) => { design.fields.lastVisit = v; }), bindCheck('来店回数', () => design.fields.visitCount, (v) => { design.fields.visitCount = v; }),
-        lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)'], ...((featOn('qrflip') || design.qr === 'flip') ? [['flip', 'カードの裏面(スワイプで表示)']] : [])], () => design.qr, (v) => { design.qr = v; }), '「裏面」にすると、会員がカードを左右にスワイプ(タップ)したとき、裏面にQRが表示されます。カードの中・裏面にしても、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。この機能が選べない場合は、運営に「カードの裏面にQR」の利用をご依頼ください。')),
+        lab('QRコードの位置', bindSelect([['below', 'カードの下'], ['inside', 'カードの中(右下)'], ...((featOn('qrflip') || design.qr === 'flip') ? [['flip', 'カードの裏面(スワイプで表示)']] : [])], () => design.qr, (v) => { design.qr = v; }), '「裏面」にすると、会員がカードを左右にスワイプ(タップ)したとき、裏面にQRが表示されます。カードの中・裏面にしても、画像として保存したカードにはQRは含まれません(QRは5分で失効するため)。この機能が選べない場合は、運営に「カードの裏面にQR」の利用をご依頼ください。'),
+        ...(design.qr === 'flip' ? [(() => { const qb = (design.qrBack ??= { x: 0, y: 0, size: 'M', label: true }); return el('div', { style: 'border-left:3px solid var(--brand);padding:2px 0 2px 12px;margin:8px 0' },
+          el('div', { className: 'hint' }, '裏面のQRの位置を調整できます(プレビューは、下のチェックで裏面になります)。'),
+          el('label', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer' }, (() => { const i = el('input', { type: 'checkbox', checked: previewBack, style: 'width:auto;margin:0', onchange: () => { previewBack = i.checked; redraw(); } }); return i; })(), 'プレビューを裏面にする'),
+          lab('横の位置(左 ← → 右)', bindRange(-40, 40, 1, () => qb.x, (v) => { qb.x = v; previewBack = true; }, '%')), lab('縦の位置(上 ← → 下)', bindRange(-40, 40, 1, () => qb.y, (v) => { qb.y = v; previewBack = true; }, '%')),
+          lab('QRの大きさ', bindSelect([['S', '小'], ['M', '中'], ['L', '大']], () => qb.size, (v) => { qb.size = v; previewBack = true; })),
+          bindCheck('裏面にタイトルと会員番号を表示する', () => qb.label !== false, (v) => { qb.label = v; previewBack = true; }),
+          el('button', { className: 'btn sm', type: 'button', onclick: () => { qb.x = 0; qb.y = 0; qb.size = 'M'; touch(); drawControls(); } }, '中央に戻す')); })()] : [])),
       sec('会員画面の見た目', lab('ボタンの色', bindColor(() => design.page.accentColor, (v) => { design.page.accentColor = v; }), '丸いボタンの枠・アイコンと、主なボタンの色です。'), lab('画面の背景色', bindColor(() => design.page.backgroundColor, (v) => { design.page.backgroundColor = v; })),
         lab('メッセージ(カードの下に表示)', bindText(() => design.page.welcomeText, (v) => { design.page.welcomeText = v; }, '例: ご来店ありがとうございます', 120)),
         bindCheck('「登録情報」(折りたたみの一覧)を表示する', () => design.page.showInfoList, (v) => { design.page.showInfoList = v; }), bindCheck('公式LINEのショップカードのボタンを表示する(URLを設定した場合)', () => design.page.showShopcard, (v) => { design.page.showShopcard = v; }),

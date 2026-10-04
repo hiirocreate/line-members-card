@@ -101,7 +101,7 @@ function showCard(me, opts = {}) {
     try {
       const { code, expiresAt } = await api('qr');
       if (privacy) return;
-      if (design.qr === 'inside' || flip) { qrCanvas = makeQr(code, flip ? 360 : 190); paint(); } else { qrBox.replaceChildren(); new QRCode(qrBox, { text: code, width: 150, height: 150 }); }
+      if (design.qr === 'inside' || flip) { qrCanvas = makeQr(code, flip ? 440 : 190); paint(); } else { qrBox.replaceChildren(); new QRCode(qrBox, { text: code, width: 150, height: 150 }); }
       clearTimeout(qrTimer);
       qrTimer = setTimeout(refreshQr, Math.max(10_000, expiresAt - Date.now() - 60_000));
     } catch (e) { (design.qr === 'inside' || flip ? visit : qrBox).append(el('div', { className: 'err' }, e.message)); }
@@ -122,7 +122,8 @@ function showCard(me, opts = {}) {
   // 裏返しのカード: 横にスワイプ、またはタップで表裏が切り替わる (縦のスクロールはそのまま使える)
   const flipWrap = flip ? el('div', { className: 'flip' }, el('div', { className: 'flip-in' }, canvas, backCanvas)) : null;
   if (flipWrap) {
-    let x0 = null, flipped = false;
+    let x0 = null, flipped = !!opts.startBack;
+    flipWrap.classList.toggle('turned', flipped);
     const toggleFlip = () => { flipped = !flipped; flipWrap.classList.toggle('turned', flipped); flipWrap.setAttribute('aria-label', flipped ? '会員証の裏面' : '会員証の表面'); };
     flipWrap.addEventListener('pointerdown', (e) => { x0 = e.clientX; });
     flipWrap.addEventListener('pointerup', (e) => { if (x0 === null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 40 || Math.abs(dx) < 8) toggleFlip(); });
@@ -351,7 +352,7 @@ if (PREVIEW) { // 親(管理画面)から { me, assetUrls } を受け取るた�
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || e.source !== parent || e.data?.type !== 'preview') return;
     previewMe = e.data.me; previewUrls = e.data.assetUrls ?? {}; shop = previewMe.shop;
-    const y = window.scrollY; showCard(previewMe); window.scrollTo(0, y);
+    const y = window.scrollY; showCard(previewMe, { startBack: !!e.data.back }); window.scrollTo(0, y);
   });
   parent.postMessage({ type: 'preview-ready' }, location.origin);
 } else (async () => {

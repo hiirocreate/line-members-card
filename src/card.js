@@ -20,7 +20,8 @@ export const DEFAULT_DESIGN = {
   title: 'MEMBER CARD',
   logo: { imageId: null, position: 'top-left', size: 'M' },
   fields: { name: true, reading: false, nameOrder: 'asis', registeredAt: false, lastVisit: true, visitCount: true },
-  qr: 'below', radius: 'large', font: 'sans',
+  qr: 'below', qrBack: { x: 0, y: 0, size: 'M', label: true }, // qrBack: カードの裏面にQRを置くときの位置(中央からのずれ%)・大きさ・文字の表示
+  radius: 'large', font: 'sans',
   page: { accentColor: '#06c755', backgroundColor: '#f4f5f7', welcomeText: '', showInfoList: true, showShopcard: true, showNotice: true },
 };
 
@@ -58,6 +59,7 @@ export function normalizeDesign(input, { hasAsset = () => false } = {}) {
     title: text(d.title, D.title, 24, 'カードのタイトル'),
     logo: { imageId: img(lg.imageId, 'ロゴ'), position: pick(lg.position, ENUM.pos, D.logo.position, 'ロゴの位置'), size: pick(lg.size, ENUM.size, D.logo.size, 'ロゴの大きさ') },
     fields: { name: bool(f.name, D.fields.name), reading: bool(f.reading, D.fields.reading), nameOrder: pick(f.nameOrder, ENUM.nameOrder, D.fields.nameOrder, '氏名の並び順'), registeredAt: bool(f.registeredAt, D.fields.registeredAt), lastVisit: bool(f.lastVisit, D.fields.lastVisit), visitCount: bool(f.visitCount, D.fields.visitCount) },
+    qrBack: { x: num(d.qrBack?.x, D.qrBack.x, -40, 40, 'QRの横の位置'), y: num(d.qrBack?.y, D.qrBack.y, -40, 40, 'QRの縦の位置'), size: pick(d.qrBack?.size, ENUM.size, D.qrBack.size, 'QRの大きさ'), label: bool(d.qrBack?.label, D.qrBack.label) },
     qr: pick(d.qr, ENUM.qr, D.qr, 'QRコードの位置'), radius: pick(d.radius, ENUM.radius, D.radius, '角の丸み'), font: pick(d.font, ENUM.font, D.font, '書体'),
     page: { accentColor: color(pg.accentColor, D.page.accentColor, 'ボタンの色'), backgroundColor: color(pg.backgroundColor, D.page.backgroundColor, '画面の背景色'),
       welcomeText: text(pg.welcomeText, D.page.welcomeText, 120, 'メッセージ'), showInfoList: bool(pg.showInfoList, D.page.showInfoList), showShopcard: bool(pg.showShopcard, D.page.showShopcard), showNotice: bool(pg.showNotice, D.page.showNotice) },

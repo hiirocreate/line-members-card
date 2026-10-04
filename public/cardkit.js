@@ -129,10 +129,12 @@ export function drawCard(canvas, design, data, { logo = null, bg = null, qr = nu
 
   // ---- 裏面 (スワイプで見せるQR): 同じ背景・帯に、QRを中央に置く ----
   if (back) {
-    const s = 360, pad = 22, x = (CARD_W - s - pad * 2) / 2, yy = (CARD_H - s - pad * 2) / 2 - 8;
+    const qb = design.qrBack ?? { x: 0, y: 0, size: 'M', label: true }, s = { S: 280, M: 360, L: 440 }[qb.size] ?? 360, pad = 22, box = s + pad * 2, M = 14; // 位置は中央からのずれ(%)。はみ出さないよう端で止める
+    const x = Math.min(CARD_W - box - M, Math.max(M, (CARD_W - box) / 2 + (qb.x / 100) * CARD_W)), yy = Math.min(CARD_H - box - M, Math.max(M, (CARD_H - box) / 2 + (qb.y / 100) * CARD_H));
     ctx.fillStyle = '#ffffff'; roundRect(ctx, x, yy, s + pad * 2, s + pad * 2, 24); ctx.fill();
     if (qr && !privacy) ctx.drawImage(qr, x + pad, yy + pad, s, s);
     else { ctx.fillStyle = '#888888'; ctx.font = `600 34px ${font}`; ctx.textAlign = 'center'; ctx.fillText(privacy ? 'QRコードは非表示中です' : 'QRコードを読み込み中…', CARD_W / 2, yy + pad + s / 2 + 10); ctx.textAlign = 'left'; }
+    if (qb.label === false) { ctx.restore(); return; }
     ctx.font = `600 26px ${font}`; ctx.fillStyle = tc; ctx.globalAlpha = 0.85;
     spaced(ctx, design.title || 'MEMBER CARD', CARD_W / 2, 52, 5, 'center');
     ctx.font = `500 24px ${font}`; ctx.textAlign = 'center'; ctx.fillText(`会員番号 ${privacy ? maskNumber(data.memberNumber) : data.memberNumber ?? ''}`, CARD_W / 2, CARD_H - 36); ctx.textAlign = 'left'; ctx.globalAlpha = 1;

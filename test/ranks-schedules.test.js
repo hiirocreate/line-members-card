@@ -120,3 +120,32 @@ test('ランクダウン(最終来店からの日数)と「次のランクまで
   assert.equal(at(12, 1).next.remaining, 18);
   r.save(ADMIN_A, T, { enabled: true, show_next: false, ranks }); assert.equal(at(12, 1).next, null); assert.equal(r.get(ADMIN_A, T).show_next, false);
 });
+
+test('配信予定のまとめ: 次の配信日時(毎日/毎週/毎月/1回・実行待ち)・誕生日配信の状態・自動実行の稼働確認', async () => {
+  const { nextRun, deliveryOverview } = await import('../src/overview.js');
+  const base = { enabled: true, last_run_key: '' };
+  const n = at('2026-10-03T10:00:00'); // 土曜
+  assert.deepEqual(nextRun({ ...base, kind: 'DAILY', time: '12:00' }, n), { at: '2026-10-03 12:00', state: 'upcoming' });
+  assert.deepEqual(nextRun({ ...base, kind: 'DAILY', time: '09:00' }, n), { at: '2026-10-03 09:00', state: 'pending' }); // 時刻を過ぎて未実行 = 実行待ち
+  assert.deepEqual(nextRun({ ...base, kind: 'DAILY', time: '09:00', last_run_key: '2026-10-03' }, n), { at: '2026-10-04 09:00', state: 'upcoming' }); // 今日は送信済み
+  assert.deepEqual(nextRun({ ...base, kind: 'WEEKLY', weekday: 1, time: '10:00' }, n), { at: '2026-10-05 10:00', state: 'upcoming' });
+  assert.deepEqual(nextRun({ ...base, kind: 'MONTHLY', day_of_month: 1, time: '10:00' }, n), { at: '2026-11-01 10:00', state: 'upcoming' });
+  assert.deepEqual(nextRun({ ...base, kind: 'MONTHLY', day_of_month: 0, time: '10:00' }, n), { at: '2026-10-31 10:00', state: 'upcoming' }); // 月末
+  assert.deepEqual(nextRun({ ...base, kind: 'ONCE', run_date: '2026-12-25', time: '08:30' }, n), { at: '2026-12-25 08:30', state: 'upcoming' });
+  assert.equal(nextRun({ ...base, kind: 'ONCE', run_date: '2026-10-01', time: '08:30' }, n).at, null); // 過ぎた1回予約
+  assert.equal(nextRun({ ...base, enabled: false, kind: 'DAILY', time: '12:00' }, n).at, null); // 停止中
+  const { app } = env();
+  app.schedules.create(ADMIN_A, T, { name: '金曜', kind: 'WEEKLY', weekday: 5, time: '12:00', message_text: 'x' }); app.schedules.create(ADMIN_A, T, { name: '毎日', kind: 'DAILY', time: '23:00', message_text: 'y' });
+  app.birthday.save(ADMIN_A, T, { enabled: true, days_before: 5, message_text: 'おめでとう' });
+  const o = deliveryOverview(app, ADMIN_A, T, n);
+  assert.deepEqual(o.schedules.map((s) => s.name), ['毎日', '金曜']); // 次の配信が近い順
+  assert.equal(o.birthday.enabled, true); assert.equal(o.birthday.days_before, 5); assert.equal(o.cron.ok, false); assert.equal(o.visitRules.length, 0);
+  assert.throws(() => deliveryOverview(app, STAFF_A, T, n), /権限/); assert.throws(() => deliveryOverview(app, ADMIN_B, T, n), /他店舗/);
+  setFeatures(app.store, OP, T, { birthday: false, schedule: false, visitrules: false });
+  const off = deliveryOverview(app, ADMIN_A, T, n); assert.deepEqual([off.birthday, off.schedules, off.visitRules], [null, null, null]); // オフの機能は出さない
+  // 稼働確認(cron が呼ばれると記録される)
+  const { createServer } = await import('../src/server.js');
+  const srv = createServer(app, { cronSecret: 'k', sessionSecret: SECRET }).listen(0);
+  await fetch(`http://127.0.0.1:${srv.address().port}/api/cron/run`, { method: 'POST', headers: { authorization: 'Bearer k' } }); srv.close();
+  assert.equal(deliveryOverview(app, ADMIN_A, T).cron.ok, true);
+});

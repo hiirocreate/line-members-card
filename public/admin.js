@@ -110,6 +110,7 @@ const HELP = {
   members: { title: '会員', lead: '登録した会員の一覧です。検索・絞り込み・詳細の確認・Excel出力ができます。', steps: ['上の「絞り込み」で、項目や来店日数、誕生日までの日数、会員ランクなどの条件を組み合わせて探せます(AND/ORの切り替え可)。', '「表示項目」で、一覧に出す列を選べます(この端末に保存されます)。20件ごとにページ送りします。', '行をクリックすると、会員の詳細が開きます。来店の記録、情報の修正、退会などができます。', '「Excel出力」で、表示中の内容をダウンロードできます(権限が必要です)。'], tips: ['退会した会員は削除されず、「退会済み」として残ります。一覧の状態の切り替えで確認できます。', '個人情報の出力には、専用の権限が必要です。'] },
   rank: { title: '会員ランク', lead: '来店回数に応じて、会員証に称号と★が表示されるしくみです。', steps: ['「会員ランクを有効にする」をオンにします。', 'ランクごとに、称号・必要な来店回数・★の色を設定します。ランクが上がるごとに★が1つ増えます。', '「カードの色を変える」または「メタリック」で、ランクごとにカードの色も変えられます(背景が画像のカードは変わりません)。', '「最終来店から○日で1つ下がる」を入れると、来店がない期間が続いたときにランクダウンします(来店すると戻ります)。', '下のプレビューで、各ランクの会員証を確認して、「保存」を押します。'], tips: ['「次のランクまであと○回」を会員に見せるかどうかも、ここで選べます。', 'メッセージ配信の絞り込みで「会員ランク」を使うと、ランクごとに配信できます。'] },
   scan: { title: '来店スキャン', lead: '来店の記録と、クーポンの使用をする画面です。', steps: ['まず「来店の記録方式」を選びます。「会員のQRを店舗が読み取る」または「店舗のQRを会員が読み取る」です。', '会員のQRを読み取る方式: 「カメラを起動」し、会員が表示した会員証のQRにかざします。', '店舗のQRを読み取る方式: 表示されたQRを店頭のタブレットなどに出します。会員が自分のスマホで読み取ると、来店が記録されます(60秒ごとに自動で切り替わります)。', 'クーポンは、会員が「クーポンを使う」で出したQRを、この画面のカメラで読み取って使用済みにします。', 'QRが使えないときは、会員番号を入力して手動で記録できます。'], tips: ['同じ会員の来店は、30分以内には重複して記録されません。', '来店回数に応じた特典の設定があれば、記録の直後に会員のLINEへ自動で送られます。'] },
+  overview: { title: '配信予定', lead: 'いま設定されている自動の配信が、有効かどうかと、次にいつ送られるかを、まとめて確認する画面です。', steps: ['一番上の「自動配信」で、自動の配信が動いているかを確認できます。', '「誕生日配信」は、オンかオフか、何日前から送るか、今日の送信予定の人数が分かります。', '「予約メッセージ」は、次に送られる日時の順に並びます。「実行待ち」は、時刻を過ぎていて、次の自動実行(10分以内)で送られる予約です。', '「来店回数配信」は、有効なルールと、これまでの送信数が分かります。', '内容を変えたいときは、各カードの「設定を開く」を押します。'], tips: ['停止中の予約や、オフの配信は、送られません。', '「自動配信」が赤い表示のときは、予約や誕生日の配信が止まっている可能性があります。運営にご連絡ください。'] },
   messages: { title: 'メッセージ配信', lead: 'LINE公式アカウントから、会員にメッセージ(とクーポン)を今すぐ送ります。', steps: ['メッセージを入力します。クーポンを付けることもできます(クーポンだけの配信も可能)。', '「配信先の絞り込み」で、送る相手の条件を決めます。空欄なら対象の全員です。', '「対象人数を確認」を押して、人数を確かめます。', '問題なければ「送信」を押します。送信後は取り消せません。'], tips: ['送れるのは、有効な会員のうち、LINE配信に同意した会員だけです。退会した会員や、お知らせを断った会員には送られません。', '日時を決めて送りたいときは「予約メッセージ」を使います。', '送信には、LINE連携タブでチャネルアクセストークンの登録が必要です。'] },
   birthday: { title: '誕生日配信', lead: '誕生日が近い会員に、メッセージ(とクーポン)を自動で送ります。', steps: ['「誕生日配信を有効にする」をオンにします。', '「何日前から送るか」を決めます(0なら誕生日当日)。', 'メッセージを入力します。{名前} は会員の名前に置き換わります。', 'クーポンを付ける場合は、選んで、有効日数(例: 30日)を入れます。', '「保存」を押します。毎日の朝9時以降に自動で送られます。「今すぐ実行」で手動送信もできます。'], tips: ['同じ会員には、1年に1回だけ送ります。', '会員登録フォームに「生年月日」の項目が必要です。'] },
   visitrules: { title: '来店回数配信', lead: '「5回目の来店」などの条件で、メッセージ・クーポンを自動で送ります。', steps: ['「＋ ルールを作成」を押します。', '何回目の来店で送るか、1回だけか「N回ごと」かを選びます。', 'メッセージ({名前}・{回数}が使えます)と、クーポンを設定します。', '開始日・終了日を入れると、その期間だけ有効になります。', '来店が記録された直後に、条件を満たした会員へ自動で送られます。'], tips: ['同じ会員に同じ回数で重複して送ることはありません。', 'LINE配信に同意していない会員には送られません。'] },
@@ -132,9 +133,9 @@ async function helpDialog(tab) {
 }
 
 // ---------- 共通レイアウト ----------
-const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['rank', '会員ランク'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['schedule', '予約メッセージ'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
+const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['rank', '会員ランク'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['overview', '配信予定'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['schedule', '予約メッセージ'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
-  const tabs = [...TABS.filter(([k]) => featOn(k) && (['messages', 'birthday', 'visitrules', 'schedule'].includes(k) ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' || k === 'rank' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
+  const tabs = [...TABS.filter(([k]) => (k === 'overview' ? ['messages', 'birthday', 'visitrules', 'schedule'].some(featOn) : featOn(k)) && (['messages', 'overview', 'birthday', 'visitrules', 'schedule'].includes(k) ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' || k === 'rank' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));
   if (ST.me.role === 'OPERATOR') {
     const sel = el('select', { style: 'width:auto', onchange: () => { if (formDirty() && !confirm('保存していない変更があります。破棄して店舗を切り替えますか?')) { sel.value = ST.tenant ?? ''; return; } discardFormDraft(); ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
@@ -824,6 +825,48 @@ async function couponsView() {
           btn(c.status === 'ARCHIVED' ? '再開' : '終了', run(err, async () => { await api(`/coupons/${c.coupon_id}/${c.status === 'ARCHIVED' ? 'restore' : 'archive'}`, { method: 'POST' }); render(); }), 'sm'))))))) : el('div', { className: 'hint' }, 'クーポンはまだありません。'), err));
 }
 
+// ---------- 配信予定 (まとめ) ----------
+const WD = ['日', '月', '火', '水', '木', '金', '土'];
+const atText = (at) => { if (!at) return '-'; const [d, t] = at.split(' '), dt = new Date(`${d}T00:00:00+09:00`); return `${d.slice(5, 7)}/${d.slice(8, 10)}(${WD[new Date(dt.getTime() + 9 * 3600_000).getUTCDay()]}) ${t}`; };
+const relText = (at) => { const ms = Date.parse(`${at.replace(' ', 'T')}:00+09:00`) - Date.now(); if (ms <= 0) return ''; const m = Math.round(ms / 60000); return m < 60 ? `あと${m}分` : m < 1440 ? `あと${Math.round(m / 60)}時間` : `あと${Math.round(m / 1440)}日`; };
+const pill = (text, kind = '') => el('span', { style: `display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;${{ on: 'background:#e3f7ea;color:#05803a', off: 'background:#eceff3;color:#667085', warn: 'background:#fff3cd;color:#7a5b00', bad: 'background:#fde7e7;color:#b42318' }[kind] ?? 'background:#eaf2ff;color:#1a56db'}` }, text);
+const goTab = (k) => { ST.tab = k; render(); };
+async function overviewView() {
+  if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
+  const o = await api('/delivery-overview');
+  const clip = (t, n = 40) => (t.length > n ? `${t.slice(0, n)}…` : t) || '(メッセージなし)';
+  const row = (k, v) => el('div', { style: 'display:flex;gap:10px;padding:5px 0;border-top:1px solid #eceff3' }, el('div', { className: 'hint', style: 'width:110px;flex:none' }, k), el('div', { style: 'flex:1;min-width:0;word-break:break-word' }, v));
+  const head = (title, state, tab) => el('div', { className: 'row', style: 'margin-bottom:6px' }, el('h2', { style: 'margin:0' }, title), state, el('span', { className: 'sp' }), btn('設定を開く', () => goTab(tab), 'sm'));
+  const cards = [];
+  const cronAt = o.cron.last_at ? new Date(o.cron.last_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+  cards.push(el('div', { className: 'card', style: `border-left:5px solid ${o.cron.ok ? '#06c755' : '#d92d20'}` }, el('div', { className: 'row' }, el('h2', { style: 'margin:0' }, '自動配信'), o.cron.ok ? pill('稼働中', 'on') : pill('確認できません', 'bad')),
+    el('div', { className: 'hint', style: 'margin-top:6px' }, o.cron.ok ? `最終確認: ${cronAt}(10分おきに確認しています)。予約メッセージと誕生日配信は、予定どおり送られます。` : `${cronAt ? `最後に確認できたのは ${cronAt} です。` : 'まだ確認できていません。'}予約メッセージと誕生日配信が、予定どおりに送られない可能性があります。運営にご連絡ください。(手動の配信と、来店回数配信は、影響を受けません)`)));
+  if (o.birthday) { const b = o.birthday;
+    cards.push(el('div', { className: 'card' }, head('誕生日配信', b.enabled ? pill('オン', 'on') : pill('オフ', 'off'), 'birthday'),
+      !b.enabled ? el('div', { className: 'hint' }, '現在は送られません。オンにすると、誕生日が近い会員へ自動で送ります。') : null,
+      row('送るタイミング', `誕生日の${b.days_before}日前から当日までに入った会員へ、毎日 朝9時以降に送信(1人につき年1回)`), row('メッセージ', clip(b.message_text)),
+      row('クーポン', b.coupon_title ? `${b.coupon_title}${b.coupon_days ? `(届いてから${b.coupon_days}日間)` : ''}` : 'なし'),
+      b.hasBirthdayField ? row('いまの対象', `誕生日が近い会員 ${b.preview.matched}人 → 送信予定 ${b.preview.willSend}人(同意なし ${b.preview.skipped.notConsented}人・今年送信済み ${b.preview.skipped.alreadySent}人)`) : row('注意', el('span', { className: 'err' }, '会員登録フォームに「生年月日」の項目がありません')),
+      row('前回の実行', b.last_run_at ? `${b.last_run_at.replace('T', ' ').slice(0, 16)} UTC — ${b.last_result?.error ? `エラー: ${b.last_result.error}` : `送信${b.last_result?.sent ?? 0}人`}` : 'まだ実行されていません')));
+  }
+  if (o.schedules) { const list = o.schedules, upcoming = list.filter((s) => s.next.at);
+    cards.push(el('div', { className: 'card' }, head('予約メッセージ', pill(`${upcoming.length}件 予定あり`, upcoming.length ? 'on' : 'off'), 'schedule'),
+      upcoming[0] ? el('div', { style: 'font-size:15px;margin:4px 0 8px' }, '次の配信: ', el('b', {}, atText(upcoming[0].next.at)), ` ${upcoming[0].next.state === 'pending' ? '(実行待ち・まもなく送信)' : relText(upcoming[0].next.at)}`, `「${upcoming[0].name}」`) : el('div', { className: 'hint' }, '予定されている配信はありません。'),
+      list.length ? el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, ['次の配信', '予約名', 'くり返し', '内容', '状態', '前回'].map((h) => el('th', {}, h))),
+        list.map((s) => el('tr', { style: s.enabled ? '' : 'opacity:.55' }, el('td', {}, s.next.at ? el('span', {}, el('b', {}, atText(s.next.at)), el('div', { className: 'hint' }, s.next.state === 'pending' ? '実行待ち' : relText(s.next.at))) : '-'), el('td', {}, s.name), el('td', {}, whenText(s)),
+          el('td', {}, [clip(s.message_text, 18), s.has_coupon ? '[クーポン]' : '', s.segment ? '[絞り込みあり]' : ''].filter(Boolean).join(' ')), el('td', {}, s.enabled ? pill(s.next.state === 'pending' ? '実行待ち' : '有効', s.next.state === 'pending' ? 'warn' : 'on') : pill(s.kind === 'ONCE' && s.last_result ? '送信済み' : '停止中', 'off')),
+          el('td', {}, s.last_result ? (s.last_result.error ? `エラー` : `${s.last_result.sent}人`) : '-'))))) : null));
+  }
+  if (o.visitRules) { const rs = o.visitRules;
+    cards.push(el('div', { className: 'card' }, head('来店回数配信', pill(`有効 ${rs.filter((r) => r.enabled).length}件`, rs.some((r) => r.enabled) ? 'on' : 'off'), 'visitrules'),
+      rs.length ? el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, ['ルール名', '条件', '内容', '期間', '送信数', '状態'].map((h) => el('th', {}, h))),
+        rs.map((r) => el('tr', { style: r.enabled ? '' : 'opacity:.55' }, el('td', {}, r.name), el('td', {}, r.repeat ? `${r.visits}回ごと` : `${r.visits}回目`), el('td', {}, [r.message_text ? 'メッセージ' : '', r.has_coupon ? 'クーポン' : ''].filter(Boolean).join('+')),
+          el('td', {}, r.valid_from || r.valid_until ? `${dayText(r.valid_from)}〜${dayText(r.valid_until)}` : '常時'), el('td', {}, `${r.sent}人${r.failed ? `(失敗${r.failed})` : ''}`), el('td', {}, r.enabled ? pill('有効', 'on') : pill('停止中', 'off')))))) : el('div', { className: 'hint' }, 'ルールはまだありません。'),
+      el('div', { className: 'hint', style: 'margin-top:6px' }, '来店が記録された直後に、条件を満たした会員へ自動で送られます。')));
+  }
+  layout(el('div', {}, ...cards));
+}
+
 // ---------- 予約メッセージ(定期) ----------
 const KIND_LABEL = { ONCE: '1回だけ', DAILY: '毎日', WEEKLY: '毎週', MONTHLY: '毎月' }, DOW = ['日', '月', '火', '水', '木', '金', '土'];
 const whenText = (s) => `${{ ONCE: `${dayText(s.run_date)} `, DAILY: '毎日 ', WEEKLY: `毎週${DOW[Number(s.weekday)]}曜 `, MONTHLY: Number(s.day_of_month) === 0 ? '毎月末 ' : `毎月${s.day_of_month}日 ` }[s.kind]}${s.time}`;
@@ -1168,7 +1211,7 @@ async function opsView() {
 }
 
 // ---------- ルーティング ----------
-const VIEWS = { form: formView, card: cardView, coupons: couponsView, members: membersView, scan: scanView, messages: messagesView, birthday: birthdayView, visitrules: visitRulesView, schedule: scheduleView, rank: rankView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
+const VIEWS = { form: formView, card: cardView, coupons: couponsView, members: membersView, scan: scanView, messages: messagesView, birthday: birthdayView, visitrules: visitRulesView, schedule: scheduleView, rank: rankView, overview: overviewView, line: lineView, urls: urlsView, audit: auditView, account: accountView, ops: opsView };
 // 描画は1つずつ直列に実行し、実行中に再要求があれば終了後にもう一度だけ描き直す。
 // (画面を素早く切り替えたとき、遅れて終わった前の画面が今の画面を上書きしないようにする)
 let rendering = false, renderAgain = false, pollTimer = null;

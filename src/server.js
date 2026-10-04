@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { OPS_HELP } from './opshelp.js';
+import { deliveryOverview } from './overview.js';
 import { FEATURES, featureOn, featureMap, setFeatures, featureForPath } from './features.js';
 // HTTP サーバ: 会員向け(LIFF/ミニアプリ)API・管理API・静的ファイル。
 // 店舗の特定: 会員側は URL 内 token (サーバ検証)、管理側はログインした管理者の tenant_id (リクエスト値は信用しない)。
@@ -312,6 +313,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     // 来店 (QRスキャン / 履歴)
     if (path === '/visits/scan' && req.method === 'POST') { const t = needTenant(), r = app.members.scanVisit(actor, t, body.code); return ok({ ...r, rewards: await app.visitRules.onVisit(t, r.member_id) }); }
     if (isOp && path === '/ops-help' && req.method === 'GET') return ok({ help: OPS_HELP });
+    if (path === '/delivery-overview' && req.method === 'GET') return ok(deliveryOverview(app, actor, needTenant()));
     if (path === '/scan-mode' && req.method === 'GET') return ok({ mode: app.members.scanMode(needTenant()) });
     if (path === '/scan-mode' && req.method === 'PUT') return ok({ mode: app.members.setScanMode(actor, needTenant(), body.mode) });
     if (path === '/visits/store-qr' && req.method === 'GET') { const t = needTenant(), r = app.members.issueStoreVisitCode(actor, t); return ok({ ...r, url: app.messaging.visitUrl(actor, t, r.code) }); }
@@ -362,6 +364,8 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
       const got = Buffer.from(req.headers.authorization ?? ''), want = Buffer.from(`Bearer ${cronSecret ?? ''}`);
       if (!cronSecret || got.length !== want.length || !timingSafeEqual(got, want)) return send(res, 401, { error: 'unauthorized' });
       const results = await app.birthday.runAll(Date.now(), { morningOnly: true }), schedules = await app.schedules.runDue();
+      const hb = { key: 'cron_heartbeat', value: new Date().toISOString() }; // 自動実行が動いている印 (配信予定の画面に表示)
+      if (app.store.find('settings', (r) => r.key === 'cron_heartbeat')) app.store.update('settings', (r) => r.key === 'cron_heartbeat', { value: hb.value }); else app.store.insert('settings', hb);
       await app.store.flush?.();
       return send(res, 200, { results, schedules });
     }

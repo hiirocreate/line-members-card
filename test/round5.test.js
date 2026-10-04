@@ -141,3 +141,19 @@ test('裏面QRの位置調整: 範囲・大きさの検証と既定値', async (
   const bad = (qb, re) => assert.throws(() => normalizeDesign({ qrBack: qb }), (e) => e.details.some((m) => re.test(m)));
   bad({ x: 99 }, /横の位置/); bad({ y: -99 }, /縦の位置/); bad({ size: 'XL' }, /大きさ/);
 });
+
+test('運営向けの説明: 運営だけがAPIで取得でき、画面のJSには含まれない', async () => {
+  const { createServer } = await import('../src/server.js');
+  const { readFile } = await import('node:fs/promises');
+  const { app } = env();
+  createAdmin(app.store, OP, { role: 'STORE_ADMIN', tenantId: T, email: 'a@x.jp', password: PW }); createAdmin(app.store, OP, { role: 'OPERATOR', tenantId: null, email: 'o@x.jp', password: PW });
+  const srv = createServer(app, { sessionSecret: SECRET }).listen(0), base = `http://127.0.0.1:${srv.address().port}`;
+  const call = async (path, o = {}) => { const r = await fetch(base + path, { method: o.method, headers: o.token ? { authorization: `Bearer ${o.token}` } : {}, body: o.body && JSON.stringify(o.body) }); return { status: r.status, text: await r.text() }; };
+  try {
+    const tok = async (email) => JSON.parse((await call('/api/admin/login', { method: 'POST', body: { email, password: PW } })).text).token;
+    const A = await tok('a@x.jp'), O = await tok('o@x.jp');
+    const op = await call('/api/admin/ops-help', { token: O }); assert.equal(op.status, 200); assert.match(op.text, /Cloud Scheduler/);
+    const st = await call('/api/admin/ops-help', { token: A }); assert.notEqual(st.status, 200); assert.ok(!/Scheduler|CRON/.test(st.text));
+    for (const f of ['admin.js', 'app.js']) assert.ok(!/Cloud Scheduler|CRON_SECRET|gcloud/.test(await readFile(new URL(`../public/${f}`, import.meta.url), 'utf8')), f);
+  } finally { srv.close(); }
+});

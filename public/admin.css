@@ -45,6 +45,8 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .row>.sp{flex:1}
 td .row{flex-wrap:nowrap}
 
+button.help{border-color:var(--brand);color:var(--brand-d);font-weight:600}
+dialog ol li,dialog ul li{margin-bottom:2px}
 /* ---- ハンバーガーメニュー (PCでは非表示) ---- */
 .burger{display:none}
 @media(max-width:900px){

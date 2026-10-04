@@ -8,6 +8,7 @@ export const ADDR = [['postal', '郵便番号'], ['prefecture', '都道府県'],
 const INPUT = { TEXT: 'text', NUMBER: 'number', DATE: 'date', TEL: 'tel', EMAIL: 'email', ZIP: 'text', URL: 'url' };
 const visibleOptions = (f) => (f.options || []).filter((o) => !o.hidden).sort((a, b) => a.order - b.order);
 
+const SCRIPT_HINT = { hiragana: 'ひらがなで入力(例: やまだ たろう)', katakana: 'カタカナで入力(例: ヤマダ タロウ)', alphabet: 'アルファベットで入力(例: Yamada Taro)' };
 export function control(f, init) {
   const name = f.field_id;
   const other = f.allow_other ? el('input', { type: 'text', name: `${name}.other`, placeholder: 'その他の内容', maxLength: 200 }) : null;
@@ -29,7 +30,7 @@ export function control(f, init) {
     }
     case 'CHECKBOX': return el('label', { className: 'o' }, el('input', { type: 'checkbox', name, checked: init === true }), ` ${f.field_name}`);
     case 'ADDRESS': return el('div', {}, ADDR.map(([p, ph]) => el('input', { type: 'text', name: `${name}.${p}`, placeholder: ph, maxLength: 200, value: (init && init[p]) || '' })));
-    default: return el('input', { type: INPUT[f.field_type] || 'text', name, placeholder: f.placeholder, value: init ?? '' });
+    default: return el('input', { type: INPUT[f.field_type] || 'text', name, placeholder: f.placeholder || SCRIPT_HINT[f.input_script] || '', value: init ?? '', ...(f.input_script === 'alphabet' ? { autocapitalize: 'words', inputmode: 'latin' } : {}) });
   }
 }
 

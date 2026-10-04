@@ -74,7 +74,8 @@ const assetImage = (id) => (id ? loadImage(PREVIEW ? (previewUrls[id] ?? '') : `
 // 会員証QR: 署名付き・5分有効。期限の1分前に自動更新 (スクリーンショットの使い回し防止)
 function showCard(me, opts = {}) {
   clearTimeout(qrTimer); clearInterval(meTimer);
-  const design = me.card;
+  const storeMode = me.scan_mode === 'STORE_QR'; // 店舗のQRを会員が読み取る方式の店舗: 会員証のQRは出さない
+  const design = storeMode ? { ...me.card, qr: 'below' } : me.card;
   applyPage(design.page);
   let cur = me, logo = null, bg = null, qrCanvas = null, privacy = !!opts.privacy; // privacy: 個人情報とQRを隠している状態
   const canvas = el('canvas', { className: 'card-canvas', 'aria-label': '会員証' });
@@ -92,7 +93,7 @@ function showCard(me, opts = {}) {
   const renderVisit = () => { visit.textContent = [cardHasVisit ? '' : (privacy ? '最終来店: ••••' : visitText(cur)), rankLine()].filter(Boolean).join(' / '); visit.style.display = visit.textContent ? '' : 'none'; };
 
   async function refreshQr() {
-    if (privacy) return; // 隠している間は、QRを取得も表示もしない
+    if (privacy || storeMode) return; // 隠している間(と、店舗のQRを読み取る方式のとき)は、QRを取得も表示もしない
     try {
       const { code, expiresAt } = await api('qr');
       if (privacy) return;
@@ -107,16 +108,18 @@ function showCard(me, opts = {}) {
   function applyPrivacy() {
     toggle.replaceChildren((privacy ? ICON.eye : ICON.eyeOff)(), privacy ? '表示する' : '隠す'); toggle.classList.toggle('on', privacy);
     infoCard.style.display = privacy ? 'none' : '';
-    qrCard.style.display = privacy ? 'none' : ''; qrHidden.style.display = privacy && design.qr === 'below' ? '' : 'none';
-    hint.textContent = privacy ? '個人情報とQRを隠しています。来店時は「表示する」を押してください' : '来店時にこの画面をスタッフにお見せください(QRは自動更新)';
+    qrCard.style.display = privacy || storeMode ? 'none' : ''; qrHidden.style.display = privacy && !storeMode && design.qr === 'below' ? '' : 'none';
+    hint.textContent = privacy ? '個人情報を隠しています。「表示する」を押すと元に戻ります' : storeMode ? '来店したら、店頭のQRコードを読み取ってください' : '来店時にこの画面をスタッフにお見せください(QRは自動更新)';
     renderVisit(); paint();
     if (privacy) { clearTimeout(qrTimer); qrCanvas = null; qrBox.replaceChildren(); } else if (window.QRCode) refreshQr();
   }
   toggle.onclick = () => { privacy = !privacy; applyPrivacy(); };
 
   root.replaceChildren(el('h1', { className: 'shop' }, design.shopName.text || me.shop), canvas, visit); // 見出しも、デザインで設定した店舗名に合わせる
+  if (opts.flash) root.append(opts.flash); // 来店を記録した直後のメッセージ
   if (design.qr === 'below') root.append(qrCard, qrHidden); else qrHidden.style.display = 'none';
   root.append(hint);
+  if (storeMode) root.append(chip(ICON.scan, '店頭のQRを読み取って来店を記録', async () => { try { await scanStoreQr(); } catch (e) { showError(e); } }, 'cta'));
   // 操作ボタン: 1行にコンパクトに並べる (詳細はシートで開く)
   const editable = form.fields.filter((f) => f.user_editable && !f.consent_target); // 同意は「お知らせ」の設定から変更する
   const bar = el('div', { className: 'bar' }, toggle,
@@ -156,10 +159,24 @@ const ICON = {
   menu: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
   eye: svg('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>'),
   eyeOff: svg('<path d="M17.9 17.9A10.9 10.9 0 0112 19c-7 0-11-7-11-7a19 19 0 015.1-5.9M9.9 4.2A10.7 10.7 0 0112 4c7 0 11 7 11 7a19 19 0 01-2.2 3.2"/><path d="M1 1l22 22"/>'),
+  scan: svg('<path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/><path d="M7 12h10"/>'),
   card: svg('<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>'),
 };
 const chip = (icon, label, onclick, extra = '') => el('button', { className: `chip ${extra}`.trim(), onclick }, icon(), label);
 
+// 店舗のQR(店頭に表示)で来店を記録。QRの中身は「ミニアプリを開くURL」なので、スマホのカメラで読み取って開いた場合も、このボタンでLINEのリーダーを使った場合も、同じ処理になる
+const visitCodeOf = (text) => /(?:^|[?&])visit=(MS1\.[\w.\-]+)/.exec(String(text))?.[1] ?? (String(text).startsWith('MS1.') ? String(text) : null);
+async function recordStoreVisit(code) {
+  const r = await api('visit', { method: 'POST', body: { code } });
+  const got = (r.rewards ?? []).filter((x) => x.status === 'SENT').map((x) => x.rule);
+  return el('div', { className: 'card mini ok', style: 'font-weight:700;text-align:center' }, `✓ 来店を記録しました(${r.visit_count}回目)`, got.length ? el('div', { style: 'font-weight:400;font-size:12px' }, `特典をLINEでお送りしました: ${got.join('、')}`) : null);
+}
+async function scanStoreQr() {
+  if (!liff.isApiAvailable?.('scanCodeV2')) throw new Error('この端末では、アプリ内の読み取りが使えません。スマホのカメラで、店頭のQRコードを読み取ってください。');
+  const r = await liff.scanCodeV2(); const code = visitCodeOf(r?.value);
+  if (!code) throw new Error('来店用のQRコードではありません。店頭のQRコードを読み取ってください。');
+  const flash = await recordStoreVisit(code); showCard(await api('me'), { flash });
+}
 // 下からのシート(ダイアログ)。LINE内ブラウザでも使える標準の <dialog>
 function sheet(title, ...nodes) {
   const d = el('dialog', { className: 'sheet' }, el('h2', {}, title), ...nodes, el('button', { className: 'chip', style: 'width:100%;margin-top:10px;padding:9px', onclick: () => d.close() }, '閉じる'));
@@ -211,14 +228,14 @@ async function showCoupon(id, me) {
   const back = async () => showCard(me ?? (await api('me')));
   let data;
   try { data = await api(`coupon/${id}`); } catch (e) { root.replaceChildren(el('h1', {}, 'クーポン'), el('div', { className: 'card err' }, e.message), el('button', { className: 'sub', onclick: back }, '会員証に戻る')); return; }
-  const c = data.coupon, until = c.valid_until ? `有効期限: ${c.valid_until.replaceAll('-', '/')}まで` : '有効期限なし';
+  const c = data.coupon, until = (c.valid_until ? `有効期限: ${c.valid_until.replaceAll('-', '/')}まで` : '有効期限なし') + (c.multi_use ? '・期間中は何度でも使えます' : '');
   const card = el('div', { className: 'card', style: 'border-left:6px solid var(--accent,#06c755)' }, el('small', { style: 'color:var(--accent,#06c755);font-weight:bold' }, 'COUPON'), el('h2', { style: 'margin:6px 0' }, c.title),
     c.benefit ? el('div', { style: 'font-size:20px;font-weight:bold;color:#d9381e;margin:6px 0' }, c.benefit) : null, c.description ? el('p', { style: 'white-space:pre-wrap' }, c.description) : null, el('small', {}, until));
   const body = el('div'), status = el('div', { style: 'text-align:center;font-weight:bold;margin:8px 0' });
   root.replaceChildren(el('h1', {}, shop), card, status, body, el('button', { className: 'sub', onclick: back }, '会員証に戻る'));
   if (data.state !== 'available') { status.textContent = COUPON_STATE[data.state] ?? ''; status.className = 'err'; return; }
 
-  let poll = null;
+  let poll = null, count = data.redeemed_count ?? 0;
   const stop = () => { clearInterval(poll); clearTimeout(qrTimer); };
   async function showCode() {
     stop();
@@ -229,12 +246,17 @@ async function showCoupon(id, me) {
       status.textContent = ''; status.className = '';
       qrTimer = setTimeout(showCode, Math.max(10_000, expiresAt - Date.now() - 60_000)); // 期限の1分前に新しいQRへ
       poll = setInterval(async () => { // 使用済みになったら画面を切り替える
-        try { const d = await api(`coupon/${id}`); if (d.state !== 'available') { stop(); body.replaceChildren(); status.textContent = d.state === 'used' ? '✓ クーポンを使用しました。ご利用ありがとうございました。' : COUPON_STATE[d.state]; status.className = d.state === 'used' ? 'ok' : 'err'; } } catch { /* 無視 */ }
+        try { const d = await api(`coupon/${id}`);
+          if (d.state === 'available' && d.redeemed_count > count) { // 何度でも使えるクーポン: 使用を確認したら、使用済みにはせず、次に使えるように戻す
+            count = d.redeemed_count; stop(); body.replaceChildren(); status.textContent = `✓ クーポンを使用しました(${count}回目)。期間中は、また使えます。`; status.className = 'ok'; setTimeout(() => { status.textContent = ''; showOpen(); }, 4000); return;
+          }
+          if (d.state !== 'available') { stop(); body.replaceChildren(); status.textContent = d.state === 'used' ? '✓ クーポンを使用しました。ご利用ありがとうございました。' : COUPON_STATE[d.state]; status.className = d.state === 'used' ? 'ok' : 'err'; } } catch { /* 無視 */ }
       }, 4000);
     } catch (e) { showError(e); }
   }
-  body.replaceChildren(el('button', { onclick: () => { if (!window.QRCode) return showError(new Error('QRコードを表示できません')); if (confirm('お会計の場でスタッフに見せる画面を開きます。よろしいですか?')) showCode(); } }, 'クーポンを使う'),
+  const showOpen = () => body.replaceChildren(el('button', { onclick: () => { if (!window.QRCode) return showError(new Error('QRコードを表示できません')); if (confirm('お会計の場でスタッフに見せる画面を開きます。よろしいですか?')) showCode(); } }, 'クーポンを使う'),
     el('small', { style: 'display:block;text-align:center;margin-top:6px' }, '※ お会計の直前に押してください。'));
+  showOpen();
 }
 
 // ---- 退会 ----
@@ -331,7 +353,15 @@ if (PREVIEW) { // 親(管理画面)から { me, assetUrls } を受け取るた�
     const f = await (await fetch(`/t/${T}/form`)).json();
     if (f.error) throw new Error(f.error);
     form = f; shop = f.shop;
-    const me = await api('me');
-    if (me.registered) { const cp = findParam('coupon'); if (/^[0-9a-f]{32}$/.test(cp || '')) showCoupon(cp, me); else showCard(me); } else if (me.withdrawn) showWithdrawn(); else startRegistration();
+    let me = await api('me');
+    if (me.registered) {
+      const cp = findParam('coupon'), vc = visitCodeOf(`visit=${findParam('visit') ?? ''}`);
+      if (/^[0-9a-f]{32}$/.test(cp || '')) showCoupon(cp, me);
+      else if (vc) { // 店頭のQRを読み取って開いた: 来店を記録してから会員証を表示
+        let flash; try { flash = await recordStoreVisit(vc); me = await api('me'); } catch (e) { flash = el('div', { className: 'card mini err', style: 'text-align:center' }, e.message); }
+        try { const u = new URL(location.href); u.searchParams.delete('visit'); history.replaceState(null, '', u); } catch { /* 無視 */ }
+        showCard(me, { flash });
+      } else showCard(me);
+    } else if (me.withdrawn) showWithdrawn(); else startRegistration();
   } catch (e) { root.replaceChildren(el('div', { className: 'card err' }, e.message)); }
 })();

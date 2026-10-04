@@ -102,6 +102,34 @@ function resetView(token) {
     el('div', { className: 'row', style: 'margin-top:12px' }, btn('設定する', go, 'pri'))));
 }
 
+// ---------- 使い方ガイド (各画面の「？使い方」ボタン) ----------
+// 各画面に、何をする画面か・基本の手順・注意点を、ポップアップで出す。マニュアルがなくても使い始められるようにする。
+const HELP = {
+  form: { title: '会員登録フォーム', lead: '会員がLINEで登録するときに入力する項目を決める画面です。', steps: ['「テンプレートを適用」で、基本・標準・マーケティングなどの項目セットを選べます。', '「標準項目を追加」で、氏名・電話番号・生年月日・読み仮名などを追加します。「カスタム項目を追加」で、店舗独自の質問も作れます。', '項目の「編集」で、表示名・必須・説明文・入力できる文字(ひらがな/カタカナ/アルファベット)を変えられます。ドラッグで並び替えもできます。', '右のプレビューで、会員に見える画面を確認します。', '最後に必ず「保存」を押します。押すまでは、会員には反映されません。'], tips: ['登録済みの会員のデータは、項目を変えても消えません。不要な項目は「無効」にすると、新規の登録から外れます。', '配信への同意の項目は、必須にできません(同意しないと登録できない形にはしません)。'] },
+  card: { title: '会員証デザイン', lead: '会員のスマホに表示される会員証(カード)と、画面の見た目を設定します。', steps: ['「テンプレート」で土台を選びます。クラシック、ダーク、サクラのほか、ゴールド・シルバーなどのメタリックもあります。', '「背景」で、単色・グラデーション・メタリック・画像から選びます。画像は横長がきれいです。', '「帯(横ライン)」で、カードの上・中・下に横の帯を入れられます(表示・色・太さ)。', '「文字と色」「ロゴ」「文言」で、色・ロゴ・店舗名・タイトルを変えます。', '「カードに表示する項目」で、氏名・来店情報のON/OFFと、氏名の並び順、QRの位置を決めます。', '右のプレビューは、会員が実際に見る画面と同じものです。確認してから「保存」を押します。'], tips: ['「カード画像をダウンロード」で、カードをPNG画像として保存できます。', 'ランク別の色は、「会員ランク」タブで設定します。'] },
+  members: { title: '会員', lead: '登録した会員の一覧です。検索・絞り込み・詳細の確認・Excel出力ができます。', steps: ['上の「絞り込み」で、項目や来店日数、誕生日までの日数、会員ランクなどの条件を組み合わせて探せます(AND/ORの切り替え可)。', '「表示項目」で、一覧に出す列を選べます(この端末に保存されます)。20件ごとにページ送りします。', '行をクリックすると、会員の詳細が開きます。来店の記録、情報の修正、退会などができます。', '「Excel出力」で、表示中の内容をダウンロードできます(権限が必要です)。'], tips: ['退会した会員は削除されず、「退会済み」として残ります。一覧の状態の切り替えで確認できます。', '個人情報の出力には、専用の権限が必要です。'] },
+  rank: { title: '会員ランク', lead: '来店回数に応じて、会員証に称号と★が表示されるしくみです。', steps: ['「会員ランクを有効にする」をオンにします。', 'ランクごとに、称号・必要な来店回数・★の色を設定します。ランクが上がるごとに★が1つ増えます。', '「カードの色を変える」または「メタリック」で、ランクごとにカードの色も変えられます(背景が画像のカードは変わりません)。', '「最終来店から○日で1つ下がる」を入れると、来店がない期間が続いたときにランクダウンします(来店すると戻ります)。', '下のプレビューで、各ランクの会員証を確認して、「保存」を押します。'], tips: ['「次のランクまであと○回」を会員に見せるかどうかも、ここで選べます。', 'メッセージ配信の絞り込みで「会員ランク」を使うと、ランクごとに配信できます。'] },
+  scan: { title: '来店スキャン', lead: '来店の記録と、クーポンの使用をする画面です。', steps: ['まず「来店の記録方式」を選びます。「会員のQRを店舗が読み取る」または「店舗のQRを会員が読み取る」です。', '会員のQRを読み取る方式: 「カメラを起動」し、会員が表示した会員証のQRにかざします。', '店舗のQRを読み取る方式: 表示されたQRを店頭のタブレットなどに出します。会員が自分のスマホで読み取ると、来店が記録されます(60秒ごとに自動で切り替わります)。', 'クーポンは、会員が「クーポンを使う」で出したQRを、この画面のカメラで読み取って使用済みにします。', 'QRが使えないときは、会員番号を入力して手動で記録できます。'], tips: ['同じ会員の来店は、30分以内には重複して記録されません。', '来店回数に応じた特典の設定があれば、記録の直後に会員のLINEへ自動で送られます。'] },
+  messages: { title: 'メッセージ配信', lead: 'LINE公式アカウントから、会員にメッセージ(とクーポン)を今すぐ送ります。', steps: ['メッセージを入力します。クーポンを付けることもできます(クーポンだけの配信も可能)。', '「配信先の絞り込み」で、送る相手の条件を決めます。空欄なら対象の全員です。', '「対象人数を確認」を押して、人数を確かめます。', '問題なければ「送信」を押します。送信後は取り消せません。'], tips: ['送れるのは、有効な会員のうち、LINE配信に同意した会員だけです。退会した会員や、お知らせを断った会員には送られません。', '日時を決めて送りたいときは「予約メッセージ」を使います。', '送信には、LINE連携タブでチャネルアクセストークンの登録が必要です。'] },
+  birthday: { title: '誕生日配信', lead: '誕生日が近い会員に、メッセージ(とクーポン)を自動で送ります。', steps: ['「誕生日配信を有効にする」をオンにします。', '「何日前から送るか」を決めます(0なら誕生日当日)。', 'メッセージを入力します。{名前} は会員の名前に置き換わります。', 'クーポンを付ける場合は、選んで、有効日数(例: 30日)を入れます。', '「保存」を押します。毎日の朝9時以降に自動で送られます。「今すぐ実行」で手動送信もできます。'], tips: ['同じ会員には、1年に1回だけ送ります。', '会員登録フォームに「生年月日」の項目が必要です。', '自動で送るには、Cloud Scheduler の設定が必要です(導入手順を参照)。'] },
+  visitrules: { title: '来店回数配信', lead: '「5回目の来店」などの条件で、メッセージ・クーポンを自動で送ります。', steps: ['「＋ ルールを作成」を押します。', '何回目の来店で送るか、1回だけか「N回ごと」かを選びます。', 'メッセージ({名前}・{回数}が使えます)と、クーポンを設定します。', '開始日・終了日を入れると、その期間だけ有効になります。', '来店が記録された直後に、条件を満たした会員へ自動で送られます。'], tips: ['同じ会員に同じ回数で重複して送ることはありません。', 'LINE配信に同意していない会員には送られません。'] },
+  schedule: { title: '予約メッセージ', lead: '日時を決めて、メッセージ(とクーポン)を自動で配信します。', steps: ['「＋ 予約を作成」を押します。', '「1回だけ・毎日・毎週・毎月」と、送る日時を選びます。', 'メッセージと、必要ならクーポンを設定します。', '「配信先の絞り込み」で、相手を絞れます(例: 会員ランク=ゴールド)。', '保存すると、時刻になったときに自動で送られます。「今すぐ送る」で、試しに送ることもできます。'], tips: ['自動で送るには、Cloud Scheduler の設定が必要です(10分おきに実行)。最大10分ほど遅れることがあります。', '同じ日に二重には送りません。1回だけの予約は、送ったあとに停止します。'] },
+  coupons: { title: 'クーポン', lead: 'クーポンを作る画面です。メッセージ・誕生日・来店回数の配信に付けて、会員に配ります。', steps: ['「＋ クーポンを作成」を押し、名前・特典・説明を入力します。', '有効期限や、「付与から○日」で、使える期間を決めます。', '「期間中は何度でも使える」をオンにすると、使用後も繰り返し使えます(「1日1回まで」も選べます)。オフなら、1人1回です。', '作ったクーポンは、各配信の画面で「クーポンを添付」から選びます。', '使用は、会員が出したQRを、「来店スキャン」で読み取ります。'], tips: ['届いた会員にだけ配られます。', '「終了」にすると、配信にも使用にも使えなくなります。'] },
+  line: { title: 'LINE連携', lead: 'LINEの公式アカウント・ミニアプリとつなぐ設定です。', steps: ['LIFF ID(ミニアプリ)、ログインチャネルID、チャネルアクセストークン(メッセージ送信用)を登録します。', 'ショップカードのURLを入れると、会員証から開けます(なくても使えます)。', '「友だち追加を登録の条件にする」で、公式アカウントを友だち追加していないと登録できないようにできます。', '保存したら、「登録URL」タブのリンクを、リッチメニューなどに設定します。'], tips: ['トークンは暗号化して保存され、画面には表示されません。', '設定の詳しい手順は、導入手順書(docs/DEPLOY.md)を参照してください。'] },
+  urls: { title: '登録URL', lead: '会員がLINEで登録を始めるためのリンクです。', steps: ['表示されているURLを、LINEのリッチメニューや、店頭のQRコードに設定します。', '漏れたときは「無効化」して、新しいURLを発行します。'], tips: ['このURLを開くと、会員証(登録済みなら会員証、未登録なら登録画面)が開きます。'] },
+  audit: { title: '監査ログ', lead: '管理画面での操作の履歴です。いつ・誰が・何をしたかを確認できます。', steps: ['一覧は新しい順です。操作の種類や対象で見分けます。'], tips: ['ログは削除できません。不審な操作がないかの確認にお使いください。'] },
+  account: { title: 'アカウント', lead: 'ご自身のパスワードと、ログインの安全設定です。', steps: ['パスワードは「変更する」から変えられます(10文字以上)。変えると、他の端末はログアウトされます。', '二段階認証は、パスキー(指紋・顔)、認証アプリ、LINEのコードから選んで設定できます。', '一覧の管理者には、「仮パスワード」「パスワード設定」「再設定リンク」を発行できます(権限のある場合)。'], tips: ['仮パスワードでログインした人は、最初にパスワードの変更が求められます。', '共用のパソコンでは、ログイン画面の「ログイン状態を保持」を外してください。'] },
+  ops: { title: '運営', lead: '運営専用の画面です。店舗・管理者・標準項目・禁止語を管理します。', steps: ['「店舗を作成」で、新しい店舗を追加します。店舗ごとに「機能設定」で、使える機能をオン/オフできます(オフにした機能は、その店舗の管理者・スタッフに表示されません)。', '「管理者アカウント」で、店舗管理者・スタッフを作成し、仮パスワードやパスワードを設定できます。', '「標準項目マスタ」で、全店舗が使える標準の項目を増やせます。', '「禁止語」で、店舗が項目名に使えない言葉を決めます。'], tips: ['店舗を選んでから各タブを開くと、その店舗の画面を操作できます。'] },
+};
+function helpDialog(tab) {
+  const h = HELP[tab]; if (!h) return;
+  const d = el('dialog', { style: 'width:min(640px,94vw)' }, el('h2', {}, `？ ${h.title}の使い方`), el('p', { style: 'margin:0 0 10px' }, h.lead),
+    el('h3', { style: 'font-size:13px;margin:14px 0 6px' }, '基本の手順'), el('ol', { style: 'margin:0;padding-left:20px;line-height:1.7' }, ...h.steps.map((x) => el('li', {}, x))),
+    h.tips?.length ? [el('h3', { style: 'font-size:13px;margin:14px 0 6px' }, 'ポイント'), el('ul', { style: 'margin:0;padding-left:20px;line-height:1.7' }, ...h.tips.map((x) => el('li', {}, x)))] : null,
+    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('閉じる', () => d.close(), 'pri')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+
 // ---------- 共通レイアウト ----------
 const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['rank', '会員ランク'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['schedule', '予約メッセージ'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
@@ -112,7 +140,7 @@ function layout(content) {
       ST.tenants.map((t) => el('option', { value: t.tenant_id, selected: t.tenant_id === ST.tenant }, `${t.name} (${t.tenant_id})`)));
     head.append(sel);
   }
-  head.append(el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { if (formDirty() && !confirm('保存していない変更があります。破棄してログアウトしますか?')) return; discardFormDraft(); store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
+  head.append(...(HELP[ST.tab] ? [btn('？ 使い方', () => helpDialog(ST.tab), 'help')] : []), el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { if (formDirty() && !confirm('保存していない変更があります。破棄してログアウトしますか?')) return; discardFormDraft(); store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
   // スマホ・タブレット: タブはハンバーガーメニューにまとめる(PCでは従来どおり横に並ぶ)
   const nav = el('nav', { id: 'tabs' });
   const burger = el('button', { className: 'burger', 'aria-label': 'メニュー', 'aria-expanded': 'false', 'aria-controls': 'tabs', onclick: () => { const o = nav.classList.toggle('open'); burger.setAttribute('aria-expanded', String(o)); burger.classList.toggle('on', o); } },
@@ -136,7 +164,7 @@ function previewNode() {
 // 画面での変更は、まず手元の下書きにだけ反映され、プレビューも下書きの内容を表示する。
 // 「保存」を押すと、まとめて1回で反映する(途中で失敗したら全部取り消し)。保存前に別のタブへ移るときは確認する。
 let formDraft = null; // { tenant, version, orig, fields, master, templates, interest, seq }
-const ATTRS = ['field_name', 'required', 'placeholder', 'purpose_text', 'user_editable', 'visibility', 'allow_other', 'consent_target'];
+const ATTRS = ['field_name', 'required', 'placeholder', 'purpose_text', 'user_editable', 'visibility', 'allow_other', 'consent_target', 'input_script'];
 const visVals = (f) => visibleOpts(f).map((o) => o.value);
 const sameAttrs = (a, b) => ATTRS.every((k) => (a[k] ?? '') === (b[k] ?? '')) && JSON.stringify(visVals(a)) === JSON.stringify(visVals(b)) && !!a.enabled === !!b.enabled;
 const formDirty = () => !!formDraft && buildOps(formDraft).length > 0;
@@ -144,7 +172,7 @@ const formDirty = () => !!formDraft && buildOps(formDraft).length > 0;
 // 下書きと、サーバー上の内容の差分を、一括保存の操作の並び(追加 → 更新 → 表示切替 → 並び順)にする
 function buildOps(d) {
   const orig = new Map(d.orig.map((f) => [f.field_id, f])), ops = [];
-  const pick = (f) => ({ field_name: f.field_name, required: !!f.required, placeholder: f.placeholder ?? '', purpose_text: f.purpose_text ?? '', user_editable: f.user_editable !== false, visibility: f.visibility, allow_other: !!f.allow_other, consent_target: f.consent_target || null });
+  const pick = (f) => ({ field_name: f.field_name, required: !!f.required, placeholder: f.placeholder ?? '', purpose_text: f.purpose_text ?? '', user_editable: f.user_editable !== false, visibility: f.visibility, allow_other: !!f.allow_other, consent_target: f.consent_target || null, input_script: f.input_script || '' });
   const news = d.fields.filter((f) => f._new);
   for (const f of news) {
     const attrs = pick(f);
@@ -173,7 +201,7 @@ function draftAddMaster(d, key, required = false) {
   if (ex) { ex.enabled = true; return ex; }
   const m = d.master.find((x) => x.key === key); if (!m) return null;
   const f = { field_id: `tmp_${++d.seq}`, _new: true, master_key: key, field_name: m.label, field_type: m.field_type, options: structuredClone(m.options ?? []), purpose_text: m.purpose_text ?? '', sensitivity: m.sensitivity,
-    consent_target: m.consent_target || null, required: m.consent_target ? false : required, enabled: true, placeholder: '', user_editable: true, visibility: 'USER', allow_other: false };
+    consent_target: m.consent_target || null, required: m.consent_target ? false : required, enabled: true, placeholder: '', user_editable: true, visibility: 'USER', allow_other: false, input_script: m.input_script || '' };
   d.fields.push(f); return f;
 }
 function draftApplyTemplate(d, name) { // サーバーの applyTemplate と同じ規則
@@ -274,11 +302,14 @@ function fieldDialog(f, d, redraw) {
   const editable = el('input', { type: 'checkbox', checked: f?.user_editable ?? true });
   const vis = el('select', {}, Object.entries(VIS).filter(([k]) => ST.me.role === 'OPERATOR' || k !== 'OPERATOR').map(([k, v]) => el('option', { value: k, selected: k === (f?.visibility ?? 'USER') }, v)));
   const other = el('input', { type: 'checkbox', checked: f?.allow_other ?? false });
+  const script = el('select', {}, [['', '指定なし'], ['hiragana', 'ひらがな'], ['katakana', 'カタカナ'], ['alphabet', 'アルファベット']].map(([v, t]) => el('option', { value: v, selected: v === (f?.input_script ?? '') }, t)));
+  const scriptBox = lab('入力できる文字(読み仮名など)', script, '指定すると、その文字だけ入力できます。ひらがな/カタカナは、もう一方で入力されても自動で変換します。アルファベットは全角も半角にそろえます。');
   const opts = el('textarea', { value: f ? visibleOpts(f).map((o) => o.value).join('\n') : '', placeholder: '1行に1つ。行の順番が表示順になります' });
   const consent = el('select', {}, [['', 'なし'], ['EMAIL', 'メール配信への同意'], ['LINE', 'LINE配信への同意'], ['MARKETING', 'マーケティング利用への同意']].map(([v, t]) => el('option', { value: v, selected: v === (f?.consent_target ?? '') }, t)));
   const choiceBox = el('div', {}, lab('選択肢', opts, '「その他」を含めると自由入力欄を設定できます。削除した選択肢は新規入力から外れ、既存データは保持されます。'), el('label', { className: 'lb' }, other, ' 「その他」選択時に自由入力欄を表示'));
   const consentBox = lab('同意項目の種別', consent, '配信同意はこの項目でのみ付与されます(メールアドレス登録だけでは同意扱いになりません)。');
   const sync = () => {
+    scriptBox.style.display = type.value === 'TEXT' ? '' : 'none';
     choiceBox.style.display = CHOICE.includes(type.value) ? '' : 'none'; consentBox.style.display = type.value === 'CHECKBOX' ? '' : 'none';
     const isConsent = type.value === 'CHECKBOX' && !!consent.value; // 配信の同意は必須にできない
     if (isConsent) required.checked = false; required.disabled = isConsent;
@@ -290,7 +321,7 @@ function fieldDialog(f, d, redraw) {
     if (/<[^>]*>/.test(name.value + ph.value + purpose.value + opts.value)) throw new Error('HTMLは使用できません');
     if (choice && !lines.length) throw new Error('選択式の項目には、選択肢が必要です');
     if (new Set(lines).size !== lines.length) throw new Error('選択肢が重複しています');
-    const vals = { field_name: name.value.trim(), placeholder: ph.value, purpose_text: purpose.value, required: required.checked, user_editable: editable.checked, visibility: vis.value, allow_other: other.checked && choice };
+    const vals = { field_name: name.value.trim(), placeholder: ph.value, purpose_text: purpose.value, required: required.checked, user_editable: editable.checked, visibility: vis.value, allow_other: other.checked && choice, input_script: t === 'TEXT' ? script.value : '' };
     if (t === 'CHECKBOX') vals.consent_target = consent.value || null;
     // 選択肢: 並びは行の順。消した選択肢は「非表示」として残す(既存データを守る。サーバーも同じ扱い)
     const optionObjs = lines.map((v, i) => ({ value: v, label: v, order: i + 1 }));
@@ -300,9 +331,10 @@ function fieldDialog(f, d, redraw) {
     dlg.close(); redraw();
   };
   const dlg = el('dialog', {}, el('h2', {}, isNew ? 'カスタム項目を追加' : `項目を編集: ${f.field_name}`),
-    lab('表示名', name, f && f.master_key ? '内部ID(field_id)は変わりません。表示名のみ変更されます。' : null), lab('入力形式', type), choiceBox, consentBox,
+    lab('表示名', name, f && f.master_key ? '内部ID(field_id)は変わりません。表示名のみ変更されます。' : null), lab('入力形式', type), scriptBox, choiceBox, consentBox,
     lab('プレースホルダー', ph), lab('利用目的(会員に表示)', purpose), lab('表示範囲', vis),
-    el('label', { className: 'lb' }, required, ' 必須'), el('label', { className: 'lb' }, editable, ' ユーザー自身が変更できる'), lab('付与からの有効日数(任意)', days, '会員に届いてからの日数です(例: 誕生日クーポンで30)。有効期限と両方ある場合は早い方が優先。空欄なら制限なし。'), err,
+    el('label', { className: 'lb' }, required, ' 必須'), el('label', { className: 'lb' }, editable, ' ユーザー自身が変更できる'), 
+    err,
     el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => dlg.close()), btn(isNew ? '下書きに追加' : '下書きに反映', run(err, async () => apply()), 'pri'),
     ), el('div', { className: 'hint', style: 'text-align:right' }, '「保存」ボタンを押すまで、会員には反映されません。'));
   document.body.append(dlg); dlg.addEventListener('close', () => dlg.remove()); dlg.showModal();
@@ -401,7 +433,7 @@ async function cardView() {
         bg.type === 'image' ? [lab('背景画像', uploadBox('background', () => bg.imageId, (v) => { bg.imageId = v; }), '横長の画像がおすすめです(自動で縮小されます)。'), lab('暗さ(文字を読みやすくします)', bindRange(0, 80, 5, () => bg.overlay, (v) => { bg.overlay = v; }, '%'))] : null),
       sec('帯(横ライン)', el('div', { className: 'hint' }, 'カードの上・中・下に、横の帯を入れられます。表示するものだけチェックして、色と太さを選びます。'),
         ...[['上', 0], ['中', 1], ['下', 2]].map(([t, i]) => { const b = (design.bands ??= [0, 1, 2].map(() => ({ show: false, color: '#ffffff', size: 'M' })))[i];
-          return el('div', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap' }, bindCheck(`${t}の帯`, () => b.show, (v) => { b.show = v; }), bindColor(() => b.color, (v) => { b.color = v; }), bindSelect([['S', '細い'], ['M', 'ふつう'], ['L', '太い']], () => b.size, (v) => { b.size = v; })); })),
+          return el('div', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap' }, bindCheck(`${t}の帯`, () => b.show, (v) => { b.show = v; }), bindColor(() => b.color, (v) => { b.color = v; }), (() => { const sz = bindSelect([['S', '細い'], ['M', 'ふつう'], ['L', '太い']], () => b.size, (v) => { b.size = v; }); sz.style.width = 'auto'; return sz; })()); })),
       sec('文字と色', lab('文字の色', bindColor(() => design.textColor, (v) => { design.textColor = v; })), lab('アクセント色(線など)', bindColor(() => design.accentColor, (v) => { design.accentColor = v; })),
         lab('書体', bindSelect([['sans', 'ゴシック'], ['serif', '明朝']], () => design.font, (v) => { design.font = v; })), lab('カードの角', bindSelect([['large', '丸い'], ['small', '少し丸い'], ['none', '角ばった']], () => design.radius, (v) => { design.radius = v; }))),
       sec('ロゴ', lab('ロゴ画像', uploadBox('logo', () => design.logo.imageId, (v) => { design.logo.imageId = v; }), '背景が透明なPNGがきれいです(自動で縮小されます)。'),
@@ -627,6 +659,27 @@ function infoDialog(title, lines, copyText) {
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
 }
 
+// 管理者が、ユーザーごとに指定のパスワードを設定する (本人は最初のログインで変更が必要)
+function setPasswordDialog(a, err) {
+  const e = el('div', { className: 'err' }), pw = el('input', { type: 'text', autocomplete: 'off', placeholder: '10文字以上', style: 'font-family:monospace' });
+  const save = run(e, async () => { await api(`/admins/${a.admin_id}/password`, { method: 'PUT', body: { password: pw.value } }); d.close(); infoDialog('パスワードを設定しました', [`${a.email} のパスワードを設定しました。本人に安全な方法で伝えてください。本人は、最初のログインで自分のパスワードに変更します。`]); });
+  const d = el('dialog', {}, el('h2', {}, `${a.email} のパスワードを設定`), lab('新しいパスワード', pw, '設定すると、その人のログイン中の端末はログアウトされます。'), e,
+    el('div', { className: 'row', style: 'margin-top:12px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('設定する', save, 'pri')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+// 仮パスワードでログインした直後: 自分のパスワードに変更するまで、他の画面には進めない
+function mustChangeView() {
+  const err = el('div', { className: 'err' }), cur = el('input', { type: 'password', autocomplete: 'current-password' }), n1 = el('input', { type: 'password', autocomplete: 'new-password' }), n2 = el('input', { type: 'password', autocomplete: 'new-password' });
+  const go = run(err, async () => {
+    if (n1.value !== n2.value) throw new Error('確認用パスワードが一致しません');
+    const r = await api('/security/password', { method: 'POST', body: { current: cur.value, next: n1.value } });
+    store.set(r.token, store.remembered()); await boot();
+  });
+  root.replaceChildren(el('div', { className: 'login card' }, el('h2', {}, 'パスワードの変更'), el('div', { className: 'hint', style: 'margin-bottom:8px' }, '仮のパスワードでログインしました。続けるには、ご自身のパスワードに変更してください。'),
+    lab('今のパスワード(仮パスワード)', cur), lab('新しいパスワード(10文字以上)', n1), lab('新しいパスワード(確認)', n2), err,
+    el('div', { className: 'row', style: 'margin-top:12px' }, btn('変更する', go, 'pri'), btn('ログアウト', () => { store.set(null); ST.me = null; render(); }))));
+}
+
 // 管理者一覧 (運営=全員 / 店舗管理者=自店舗)。再設定リンク発行・2FAリセットは権限のある行だけ
 function adminsCard(admins, err, onChange) {
   const mine = ST.me.id;
@@ -634,6 +687,8 @@ function adminsCard(admins, err, onChange) {
   return el('table', {}, el('tr', {}, ['メール', 'ロール', '店舗', '状態', '2FA', ''].map((h) => el('th', {}, h))),
     admins.map((a) => el('tr', {}, el('td', {}, a.email), el('td', {}, a.role), el('td', {}, a.tenant_id ?? '-'), el('td', {}, a.enabled ? '有効' : '無効'), el('td', {}, a.totp_enabled ? '有効' : '-'),
       el('td', {}, el('div', { className: 'row' }, ...(manageable(a) ? [
+        btn('仮パスワード', run(err, async () => { if (!confirm(`${a.email} に仮パスワードを発行します。本人の今のパスワードは使えなくなり、ログイン中の端末もログアウトされます。`)) return; const r = await api(`/admins/${a.admin_id}/temp-password`, { method: 'POST' }); infoDialog('仮パスワード', ['このパスワードは、この画面でしか見られません。本人に安全な方法で渡してください。', r.password, '本人は、このパスワードでログインしたあと、すぐに自分のパスワードに変更します(変更するまで、他の操作はできません)。'], r.password); }), 'sm'),
+        btn('パスワード設定', () => setPasswordDialog(a, err), 'sm'),
         btn('再設定リンク', run(err, async () => { const r = await api(`/admins/${a.admin_id}/reset-link`, { method: 'POST' }); const u = fullUrl(r.path); infoDialog('パスワード再設定リンク', ['本人に安全な方法で渡してください。1時間・1回限り有効です。', u], u); }), 'sm'),
         a.totp_enabled ? btn('2FAリセット', run(err, async () => { if (confirm(`${a.email} の二段階認証を解除します。`)) { await api(`/admins/${a.admin_id}/reset-2fa`, { method: 'POST' }); onChange(); } }), 'sm') : null,
         ST.me.role === 'OPERATOR' ? btn(a.enabled ? '無効化' : '有効化', run(err, async () => { await api(`/admins/${a.admin_id}/${a.enabled ? 'disable' : 'enable'}`, { method: 'POST' }); onChange(); }), 'sm') : null] : []))))));
@@ -685,7 +740,27 @@ async function scanView() {
       }
     })();
   });
-  layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '会員証QRで来店を記録'), el('div', { className: 'hint' }, '会員がミニアプリの会員証を開き、表示されたQRコードを読み取ります。QRは5分で期限切れになり、1回しか使えません。同じ会員の連続記録は30分間抑止されます。'),
+  // 来店の記録方式: 会員のQRを店舗が読み取る / 店舗のQRを会員が読み取る
+  let { mode } = await api('/scan-mode');
+  const modeBox = el('div', { className: 'card' }), qrArea = el('div');
+  const drawMode = async () => {
+    const opt = (v, title, desc) => el('label', { style: 'display:flex;gap:10px;align-items:flex-start;padding:8px 0;cursor:pointer' }, el('input', { type: 'radio', name: 'scanmode', checked: mode === v, disabled: !can('LINE_SETTINGS'), style: 'width:auto;margin:3px 0 0', onchange: run(status, async () => { mode = (await api('/scan-mode', { method: 'PUT', body: { mode: v } })).mode; await drawMode(); }) }), el('div', {}, el('b', {}, title), el('div', { className: 'hint' }, desc)));
+    modeBox.replaceChildren(el('h2', {}, '来店の記録方式'), opt('MEMBER_QR', '会員のQRを、店舗が読み取る', '会員が会員証のQRを見せ、スタッフがこの画面のカメラで読み取ります。'),
+      opt('STORE_QR', '店舗のQRを、会員が読み取る', '店頭のタブレットなどにこの画面のQRを表示し、会員が自分のスマホで読み取ります(スタッフの操作は不要です)。'), ...(!can('LINE_SETTINGS') ? [el('div', { className: 'hint' }, '方式の変更には、LINE設定の権限が必要です。')] : []));
+    qrArea.replaceChildren();
+    if (mode !== 'STORE_QR') return;
+    await loadScript('/vendor/qrcode.min.js');
+    const box = el('div', { style: 'display:flex;justify-content:center;background:#fff;padding:16px;border-radius:12px;width:fit-content;margin:8px auto' }), note = el('div', { className: 'hint', style: 'text-align:center' });
+    qrArea.append(el('div', { className: 'card' }, el('h2', {}, '来店用のQR(店頭に表示)'), el('div', { className: 'hint' }, 'このQRを会員に読み取ってもらいます。スマホのカメラ、またはLINEのQRコードリーダーで読み取ると、会員証が開いて来店が記録されます。画面の写真を送っても使えないように、60秒ごとに自動で切り替わります。'), box, note));
+    const refresh = async () => {
+      if (!box.isConnected) return;
+      try { const r = await api('/visits/store-qr'); if (!r.url) throw new Error('LINE連携でLIFF IDを設定してください'); box.replaceChildren(); new QRCode(box, { text: r.url, width: 260, height: 260, correctLevel: QRCode.CorrectLevel.L }); note.textContent = ''; setTimeout(refresh, Math.max(5000, r.expiresAt - Date.now() - 12_000)); }
+      catch (e) { note.className = 'err'; note.textContent = e.message; setTimeout(refresh, 15_000); }
+    };
+    refresh();
+  };
+  await drawMode();
+  layout(el('div', {}, modeBox, qrArea, el('div', { className: 'card' }, el('h2', {}, 'カメラで読み取る(会員証QR・クーポン)'), el('div', { className: 'hint' }, '会員がミニアプリの会員証を開き、表示されたQRコードを読み取ります。QRは5分で期限切れになり、1回しか使えません。同じ会員の連続記録は30分間抑止されます。'),
     status, video, el('div', { className: 'row', style: 'margin-top:8px' }, btn('カメラを起動', start, 'pri'), btn('停止', () => scanStop()))),
     el('div', { className: 'card' }, el('h2', {}, '会員番号で記録(カメラが使えないとき)'), el('div', { className: 'hint' }, '会員証の画面に表示されている会員番号を入力します(QRの確認なしの手動記録のため、本人確認は店頭で行ってください)。QRの文字列(MC1.…)を貼り付けても記録できます。'),
       el('div', { className: 'row', style: 'margin-top:8px' }, manual, btn('記録', run(status, async () => {
@@ -714,13 +789,16 @@ function couponDialog(c, done) {
   const desc = el('textarea', { value: c?.description ?? '', maxLength: 300, placeholder: '例: 他の割引との併用はできません。お会計時にスタッフへご提示ください。' });
   const from = el('input', { type: 'date', value: c?.valid_from ?? '' }), until = el('input', { type: 'date', value: c?.valid_until ?? '' });
   const days = el('input', { type: 'number', min: 1, max: 365, value: c?.valid_days ?? '', placeholder: '例: 30' });
+  const multi = el('input', { type: 'checkbox', checked: !!c?.multi_use, style: 'width:auto;margin:0' }), daily = el('input', { type: 'checkbox', checked: !!c?.once_per_day, style: 'width:auto;margin:0' });
   const save = run(err, async () => {
-    const body = { title: title.value, benefit: benefit.value, description: desc.value, valid_from: from.value, valid_until: until.value, valid_days: days.value };
+    const body = { title: title.value, benefit: benefit.value, description: desc.value, valid_from: from.value, valid_until: until.value, valid_days: days.value, multi_use: multi.checked, once_per_day: multi.checked && daily.checked };
     if (c) await api(`/coupons/${c.coupon_id}`, { method: 'PUT', body }); else await api('/coupons', { method: 'POST', body });
     d.close(); done();
   });
   const d = el('dialog', {}, el('h2', {}, c ? 'クーポンを編集' : 'クーポンを作成'), lab('クーポン名(必須)', title), lab('特典の内容', benefit, 'メッセージのカードと、会員の画面に大きく表示されます。'), lab('利用条件・説明', desc),
-    lab('利用開始日(任意)', from), lab('有効期限(任意)', until, '日本時間で、その日の終わりまで使えます。空欄なら期限なし。'), err,
+    lab('利用開始日(任意)', from), lab('有効期限(任意)', until, '日本時間で、その日の終わりまで使えます。空欄なら期限なし。'),
+    el('div', { style: 'margin-top:12px' }, el('label', { style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, multi, el('b', {}, '期間中は何度でも使える')), el('div', { className: 'hint' }, 'オンにすると、使用したあとも「使用済み」にならず、有効期限まで繰り返し使えます(スタンプカードの特典ではなく、常時割引のようなクーポン向け)。'), el('label', { style: 'display:flex;align-items:center;gap:8px;margin-top:6px;cursor:pointer' }, daily, el('span', {}, '1日1回まで')), el('div', { className: 'hint' }, '「何度でも使える」がオンのときだけ有効です。')),
+    lab('付与からの有効日数(任意)', days, '会員に届いてからの日数です(例: 誕生日クーポンで30)。有効期限と両方ある場合は早い方が優先。空欄なら制限なし。'), err,
     el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
 }
@@ -731,7 +809,7 @@ async function couponsView() {
     el('div', { className: 'hint', style: 'margin-bottom:10px' }, 'クーポンを作り、「メッセージ配信」で添付して送ります。メッセージが届いた会員にだけ配布され、1人1回使えます。会員が「クーポンを使う」で出したQRを、「来店スキャン」で読み取ると、使用済みになります。'),
     el('div', { className: 'row', style: 'margin-bottom:10px' }, btn('＋ クーポンを作成', () => couponDialog(null, render), 'pri')),
     coupons.length ? el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, ['クーポン名', '特典', '期間', '配布', '使用', '状態', ''].map((h) => el('th', {}, h))),
-      coupons.map((c) => el('tr', {}, el('td', {}, c.title), el('td', {}, c.benefit || '-'), el('td', {}, (c.valid_from || c.valid_until ? `${dayText(c.valid_from)}〜${dayText(c.valid_until)}` : '期限なし') + (c.valid_days ? ` / 付与から${c.valid_days}日` : '')), el('td', {}, String(c.granted)), el('td', {}, String(c.redeemed)),
+      coupons.map((c) => el('tr', {}, el('td', {}, c.title), el('td', {}, c.benefit || '-'), el('td', {}, (c.valid_from || c.valid_until ? `${dayText(c.valid_from)}〜${dayText(c.valid_until)}` : '期限なし') + (c.valid_days ? ` / 付与から${c.valid_days}日` : '') + (c.multi_use ? ` / 何度でも${c.once_per_day ? '(1日1回)' : ''}` : '')), el('td', {}, String(c.granted)), el('td', {}, String(c.redeemed)),
         el('td', {}, el('span', { className: `badge ${c.window === 'active' ? 'int' : ''}` }, WINDOW_LABEL[c.window])),
         el('td', {}, el('div', { className: 'row' }, btn('編集', () => couponDialog(c, render), 'sm'),
           btn(c.status === 'ARCHIVED' ? '再開' : '終了', run(err, async () => { await api(`/coupons/${c.coupon_id}/${c.status === 'ARCHIVED' ? 'restore' : 'archive'}`, { method: 'POST' }); render(); }), 'sm'))))))) : el('div', { className: 'hint' }, 'クーポンはまだありません。'), err));
@@ -1098,6 +1176,7 @@ async function render() {
 }
 async function boot() {
   ST.me = await api('/me');
+  if (ST.me.mustChange) return mustChangeView();
   if (ST.me.renew) store.set(ST.me.renew, true); // 保持中のログインは、使うたびに期限が延びる
   if (ST.me.role === 'OPERATOR') ST.tenants = (await api('/tenants')).tenants; else ST.tenant = ST.me.tenantId;
   render();

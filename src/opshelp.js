@@ -13,6 +13,7 @@ export const OPS_HELP = {
     '【自動配信のしくみ】予約メッセージ・誕生日配信は、Cloud Scheduler が10分おきに /api/cron/run を呼び出して動かします。ジョブ名は line-members-cron、認証は Authorization: Bearer <CRON_SECRET> です。',
     '【動作確認】Cloud Shell で「gcloud scheduler jobs run line-members-cron --location=asia-northeast1」を実行し、「gcloud logging read \'resource.type="cloud_run_revision" AND httpRequest.requestUrl:"/api/cron/run"\' --limit 3 --format="value(timestamp,httpRequest.status)"」で結果を見ます。200 が正常、401 は合言葉(CRON_SECRET)の不一致です。',
     '【合言葉の更新】シークレット cron-secret に新しい版を追加 → Cloud Run を --update-secrets CRON_SECRET=cron-secret:latest で更新 → ジョブを --update-headers で更新、の順に行います(詳しくは導入手順書 docs/DEPLOY.md の §13・§16)。',
+    '【店舗がすでにLINEチャネルを持っているとき】公式アカウント(Messaging API)と同じプロバイダーの中に、LINEログインチャネル+LIFFを作るか追加します(ユーザーIDはプロバイダーごとに別のため)。店舗から、LIFF ID・ログインチャネルID・チャネルアクセストークン(長期)を受け取り、「LINE連携」に登録します。詳しくは導入手順書 docs/DEPLOY.md の §25。',
     'これらの運営向けの手順は、店舗の管理者・スタッフの画面には表示されません。',
   ],
 };

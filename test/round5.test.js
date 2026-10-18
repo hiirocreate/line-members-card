@@ -157,3 +157,29 @@ test('運営向けの説明: 運営だけがAPIで取得でき、画面のJSに�
     for (const f of ['admin.js', 'app.js']) assert.ok(!/Cloud Scheduler|CRON_SECRET|gcloud/.test(await readFile(new URL(`../public/${f}`, import.meta.url), 'utf8')), f);
   } finally { srv.close(); }
 });
+
+test('店舗ごとのロール別権限: 運営だけが設定でき、すぐ反映・標準に戻せる・検証', async () => {
+  const { getRolePerms, setRolePerms } = await import('../src/roleperms.js');
+  const { can } = await import('../src/permissions.js');
+  const { app } = env();
+  const mkAdmin = (role, email) => { createAdmin(app.store, OP, { role, tenantId: T, email, password: PW }); return login(app.store, { email, password: PW, secret: SECRET }).token; };
+  const sTok = mkAdmin('STAFF', 's@x.jp'), aTok = mkAdmin('STORE_ADMIN', 'a@x.jp'); createAdmin(app.store, OP, { role: 'STAFF', tenantId: 'SHOP002', email: 's2@x.jp', password: PW });
+  const s2Tok = login(app.store, { email: 's2@x.jp', password: PW, secret: SECRET }).token;
+  const who = (tok) => verifySession(app.store, tok, SECRET);
+  assert.deepEqual([can(who(sTok), 'MESSAGE_SEND'), can(who(sTok), 'MEMBER_EDIT'), can(who(aTok), 'EXPORT_MEMBERS')], [false, true, true]);
+  assert.throws(() => getRolePerms(app.store, ADMIN_A, T), /権限/); assert.throws(() => setRolePerms(app.store, ADMIN_A, T, { STAFF: ['MEMBER_VIEW'] }), /権限/);
+  const bad = (i, re) => assert.throws(() => setRolePerms(app.store, OP, T, i), re);
+  bad({ STAFF: ['MEMBER_EDIT'] }, /閲覧/); bad({ STAFF: ['MEMBER_VIEW', 'MASTER_EDIT'] }, /不正/); bad({ STAFF: 'x' }, /不正/);
+  setRolePerms(app.store, OP, T, { STAFF: ['MEMBER_VIEW', 'MEMBER_EDIT', 'MESSAGE_SEND'], STORE_ADMIN: ['MEMBER_VIEW', 'MEMBER_EDIT', 'FORM_EDIT'] });
+  // ログインし直さなくても、すぐ反映される
+  assert.deepEqual([can(who(sTok), 'MESSAGE_SEND'), can(who(sTok), 'MEMBER_EDIT'), can(who(sTok), 'EXPORT_MEMBERS')], [true, true, false]);
+  assert.deepEqual([can(who(aTok), 'EXPORT_MEMBERS'), can(who(aTok), 'FORM_EDIT'), can(who(aTok), 'LINE_SETTINGS')], [false, true, false]);
+  assert.equal(can(who(s2Tok), 'MESSAGE_SEND'), false); // 他店舗には影響しない
+  assert.equal(can(who(aTok), 'MASTER_EDIT'), false); // 運営の権限は、店舗には付かない
+  // 実際の操作にも反映 (店舗管理者から外したクーポン管理)
+  assert.throws(() => app.coupons.create(who(aTok), T, { title: 'x' }), /権限/); await app.messaging.send(who(sTok), T, { text: 'x', expectedCount: 0 }).catch((e) => assert.doesNotMatch(String(e.message), /権限/));
+  assert.deepEqual(getRolePerms(app.store, OP, T).roles.STAFF, ['MEMBER_VIEW', 'MEMBER_EDIT', 'MESSAGE_SEND']);
+  setRolePerms(app.store, OP, T, getRolePerms(app.store, OP, T).defaults); // 標準に戻す
+  assert.equal(can(who(sTok), 'MESSAGE_SEND'), false); assert.equal(can(who(aTok), 'EXPORT_MEMBERS'), true); assert.equal(app.store.find('tenants', (t) => t.tenant_id === T).role_perms.STAFF, undefined);
+  assert.ok(app.store.select('audit_logs').some((a) => a.action === 'ROLE_PERMS'));
+});

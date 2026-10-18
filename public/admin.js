@@ -135,7 +135,8 @@ async function helpDialog(tab) {
 // ---------- 共通レイアウト ----------
 const TABS = [['form', '会員登録フォーム'], ['card', '会員証デザイン'], ['members', '会員'], ['rank', '会員ランク'], ['scan', '来店スキャン'], ['messages', 'メッセージ配信'], ['overview', '配信予定'], ['birthday', '誕生日配信'], ['visitrules', '来店回数配信'], ['schedule', '予約メッセージ'], ['coupons', 'クーポン'], ['line', 'LINE連携'], ['urls', '登録URL'], ['audit', '監査ログ'], ['account', 'アカウント']];
 function layout(content) {
-  const tabs = [...TABS.filter(([k]) => (k === 'overview' ? ['messages', 'birthday', 'visitrules', 'schedule'].some(featOn) : featOn(k)) && (['messages', 'overview', 'birthday', 'visitrules', 'schedule'].includes(k) ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' || k === 'rank' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
+  const tabs = [...TABS.filter(([k]) => (k === 'overview' ? ['messages', 'birthday', 'visitrules', 'schedule'].some(featOn) : featOn(k)) && (k === 'form' || k === 'urls' ? can('FORM_EDIT') : k === 'members' ? can('MEMBER_VIEW') : k === 'scan' ? can('MEMBER_EDIT') : k === 'audit' ? (ST.me.role === 'OPERATOR' || ST.me.role === 'STORE_ADMIN') : ['messages', 'overview', 'birthday', 'visitrules', 'schedule'].includes(k) ? can('MESSAGE_SEND') : k === 'line' ? can('LINE_SETTINGS') : k === 'card' || k === 'rank' ? can('CARD_DESIGN') : k === 'coupons' ? can('COUPON_MANAGE') : true)), ...(ST.me.role === 'OPERATOR' ? [['ops', '運営']] : [])];
+  if (!tabs.some(([k]) => k === ST.tab) && tabs.length && ST.tab !== 'ops') { ST.tab = tabs[0][0]; setTimeout(render, 0); return; } // 権限がなくて開けないタブのときは、開けるタブへ移る
   const head = el('header', {}, el('h1', {}, '会員管理'), el('span', { className: 'hint' }, ST.me.tenantName ?? ''), el('span', { className: 'sp' }));
   if (ST.me.role === 'OPERATOR') {
     const sel = el('select', { style: 'width:auto', onchange: () => { if (formDirty() && !confirm('保存していない変更があります。破棄して店舗を切り替えますか?')) { sel.value = ST.tenant ?? ''; return; } discardFormDraft(); ST.tenant = sel.value || null; render(); } }, el('option', { value: '' }, '店舗を選択'),
@@ -967,6 +968,21 @@ async function rankView() {
     el('div', { className: 'card' }, el('h2', {}, 'プレビュー(ランクごとの会員証)'), el('div', { className: 'hint', style: 'margin-bottom:8px' }, '色を変えると、すぐに反映されます。「左上」「右下」は、カードの背景のグラデーションの両端の色です。'), previewBox)));
 }
 
+// ---------- 運営: 店舗ごとの権限設定(店舗スタッフ・店舗管理者) ----------
+async function rolePermsDialog(t) {
+  const d0 = await api(`/tenants/${t.tenant_id}/role-perms`), err = el('div', { className: 'err' });
+  const sel = { STAFF: new Set(d0.roles.STAFF), STORE_ADMIN: new Set(d0.roles.STORE_ADMIN) };
+  const cell = (role, p) => { const i = el('input', { type: 'checkbox', checked: sel[role].has(p), disabled: p === 'MEMBER_VIEW', style: 'width:auto;margin:0', onchange: () => { i.checked ? sel[role].add(p) : sel[role].delete(p); } }); return el('td', { style: 'text-align:center' }, i); };
+  const rows = d0.assignable.map((p) => el('tr', {}, el('td', {}, el('b', {}, d0.labels[p][0]), el('div', { className: 'hint' }, d0.labels[p][1])), cell('STAFF', p), cell('STORE_ADMIN', p)));
+  const save = run(err, async () => { await api(`/tenants/${t.tenant_id}/role-perms`, { method: 'PUT', body: { STAFF: [...sel.STAFF], STORE_ADMIN: [...sel.STORE_ADMIN] } }); d.close(); render(); });
+  const reset = run(err, async () => { if (!confirm('この店舗の権限を、標準の設定に戻します。よろしいですか?')) return; await api(`/tenants/${t.tenant_id}/role-perms`, { method: 'PUT', body: d0.defaults }); d.close(); render(); });
+  const d = el('dialog', { style: 'width:min(680px,96vw)' }, el('h2', {}, `${t.name} の権限`), el('div', { className: 'hint', style: 'margin-bottom:8px' }, '店舗スタッフと店舗管理者に、何を許可するかを決めます。チェックを外した操作は、画面にも表示されず、使えなくなります。変更は、保存後すぐ、その店舗の全アカウントに反映されます(ログインし直しは不要です)。'),
+    el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, el('th', {}, '権限'), el('th', { style: 'text-align:center' }, '店舗スタッフ'), el('th', { style: 'text-align:center' }, '店舗管理者')), ...rows)),
+    el('div', { className: 'hint', style: 'margin-top:6px' }, 'マスタ・項目の完全削除・店舗や管理者の作成などは、運営だけの権限です(店舗には付けられません)。アカウントごとの追加の権限がある場合は、これに加えて有効です。'), err,
+    el('div', { className: 'row', style: 'margin-top:12px;justify-content:flex-end' }, btn('標準に戻す', reset, 'dng'), btn('キャンセル', () => d.close()), btn('保存', save, 'pri')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+
 // ---------- 運営: 店舗ごとの機能設定 ----------
 async function featuresDialog(t) {
   const { features, labels } = await api(`/tenants/${t.tenant_id}/features`), err = el('div', { className: 'err' });
@@ -1196,7 +1212,7 @@ async function opsView() {
   const mp = el('input', { type: 'text', placeholder: '利用目的(任意)' }), mo = el('textarea', { placeholder: '選択式の場合: 選択肢を1行に1つ' });
   const bt = el('textarea', { value: terms.join('\n'), style: 'min-height:140px' });
   layout(el('div', {},
-    el('div', { className: 'card' }, el('h2', {}, '店舗'), tenants.map((t) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, t.name), el('span', { className: 'hint' }, t.tenant_id), el('span', { className: 'hint' }, Object.values(t.features).some((v) => !v) ? `制限あり(${Object.values(t.features).filter((v) => !v).length}機能オフ)` : ''), btn('機能設定', () => featuresDialog(t), 'sm')))),
+    el('div', { className: 'card' }, el('h2', {}, '店舗'), tenants.map((t) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, t.name), el('span', { className: 'hint' }, t.tenant_id), el('span', { className: 'hint' }, Object.values(t.features).some((v) => !v) ? `制限あり(${Object.values(t.features).filter((v) => !v).length}機能オフ)` : ''), btn('機能設定', () => featuresDialog(t), 'sm'), btn('権限設定', () => rolePermsDialog(t), 'sm')))),
       el('div', { className: 'row' }, tid, tname, btn('店舗を作成', run(e1, async () => { const r = await api('/tenants', { method: 'POST', body: { tenantId: tid.value.trim(), name: tname.value.trim() } }); infoDialog('店舗を作成しました', [`登録token: ${r.registrationToken}`]); render(); }), 'pri')), e1),
     el('div', { className: 'card' }, el('h2', {}, '管理者アカウント'), adminsCard(admins, e2, render),
       el('div', { className: 'row', style: 'margin-top:12px' }, aemail, apw, arole, atenant, btn('作成', run(e2, async () => { await api('/admins', { method: 'POST', body: { email: aemail.value, password: apw.value, role: arole.value, tenantId: arole.value === 'OPERATOR' ? undefined : atenant.value } }); render(); }), 'pri')), e2),

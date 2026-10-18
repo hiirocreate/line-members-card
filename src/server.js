@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { OPS_HELP } from './opshelp.js';
 import { deliveryOverview } from './overview.js';
+import { getRolePerms, setRolePerms } from './roleperms.js';
 import { FEATURES, featureOn, featureMap, setFeatures, featureForPath } from './features.js';
 // HTTP サーバ: 会員向け(LIFF/ミニアプリ)API・管理API・静的ファイル。
 // 店舗の特定: 会員側は URL 内 token (サーバ検証)、管理側はログインした管理者の tenant_id (リクエスト値は信用しない)。
@@ -312,6 +313,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
 
     // 来店 (QRスキャン / 履歴)
     if (path === '/visits/scan' && req.method === 'POST') { const t = needTenant(), r = app.members.scanVisit(actor, t, body.code); return ok({ ...r, rewards: await app.visitRules.onVisit(t, r.member_id) }); }
+    if (isOp && (m = /^\/tenants\/([\w-]+)\/role-perms$/.exec(path))) { if (req.method === 'GET') return ok(getRolePerms(app.store, actor, m[1])); if (req.method === 'PUT') return ok(setRolePerms(app.store, actor, m[1], body)); }
     if (isOp && path === '/ops-help' && req.method === 'GET') return ok({ help: OPS_HELP });
     if (path === '/delivery-overview' && req.method === 'GET') return ok(deliveryOverview(app, actor, needTenant()));
     if (path === '/scan-mode' && req.method === 'GET') return ok({ mode: app.members.scanMode(needTenant()) });

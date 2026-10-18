@@ -135,7 +135,8 @@ export function verifySession(store, token, secret) {
   if (!(s.exp > Date.now())) return null;
   const a = store.find('admins', (x) => x.admin_id === s.sub);
   if (!a?.enabled || (s.ep ?? 0) !== epochOf(a)) return null;
-  return { id: a.admin_id, role: a.role, tenantId: a.tenant_id, grants: a.grants ?? [], email: a.email, totp: !!a.totp_enabled, mustChange: a.must_change_password === true || a.must_change_password === 'TRUE' };
+  const rp = a.tenant_id ? store.find('tenants', (t) => t.tenant_id === a.tenant_id)?.role_perms?.[a.role] : null; // 運営がその店舗に設定した、ロール別の権限
+  return { id: a.admin_id, role: a.role, tenantId: a.tenant_id, grants: a.grants ?? [], ...(Array.isArray(rp) ? { rolePerms: rp } : {}), email: a.email, totp: !!a.totp_enabled, mustChange: a.must_change_password === true || a.must_change_password === 'TRUE' };
 }
 
 // ---- 自分のアカウント: パスワード変更 / 二段階認証 ----

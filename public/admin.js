@@ -144,13 +144,19 @@ function layout(content) {
     head.append(sel);
   }
   head.append(...(HELP[ST.tab] ? [btn('？ 使い方', () => helpDialog(ST.tab), 'help')] : []), el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { if (formDirty() && !confirm('保存していない変更があります。破棄してログアウトしますか?')) return; discardFormDraft(); store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
-  // スマホ・タブレット: タブはハンバーガーメニューにまとめる(PCでは従来どおり横に並ぶ)
   const nav = el('nav', { id: 'tabs' });
   const burger = el('button', { className: 'burger', 'aria-label': 'メニュー', 'aria-expanded': 'false', 'aria-controls': 'tabs', onclick: () => { const o = nav.classList.toggle('open'); burger.setAttribute('aria-expanded', String(o)); burger.classList.toggle('on', o); } },
     el('span', { className: 'bars' }), el('span', { className: 'cur' }, tabs.find(([k]) => k === ST.tab)?.[1] ?? 'メニュー'));
   head.prepend(burger);
-  nav.append(...tabs.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => { if (ST.tab === k && rendering) return; if (ST.tab === 'form' && k !== 'form' && formDirty()) { if (!confirm('保存していない変更があります。破棄して移動しますか?')) return; discardFormDraft(); } ST.tab = k; render(); } }, t)));
-  root.replaceChildren(head, nav, el('main', {}, content));
+  // 画面の切り替え: PC・タブレットは、左のサイドバー(グループ見出し付き)。スマホは、ハンバーガーメニュー
+  const NAV_GROUPS = [['会員', ['members', 'rank', 'scan', 'coupons']], ['配信', ['overview', 'messages', 'schedule', 'birthday', 'visitrules']], ['登録・会員証', ['form', 'card', 'urls']], ['管理', ['line', 'audit', 'account', 'ops']]];
+  const goTab = (k) => { if (ST.tab === k && rendering) return; if (ST.tab === 'form' && k !== 'form' && formDirty()) { if (!confirm('保存していない変更があります。破棄して移動しますか?')) return; discardFormDraft(); } ST.tab = k; render(); };
+  for (const [title, keys] of NAV_GROUPS) {
+    const items = keys.map((k) => tabs.find(([x]) => x === k)).filter(Boolean);
+    if (!items.length) continue;
+    nav.append(el('div', { className: 'navgroup' }, title), ...items.map(([k, t]) => el('button', { className: ST.tab === k ? 'on' : '', onclick: () => goTab(k) }, t)));
+  }
+  root.replaceChildren(head, el('div', { className: 'shell' }, nav, el('main', {}, content)));
 }
 
 // ---------- フォーム設定 ----------
@@ -479,7 +485,7 @@ async function cardView() {
   layout(el('div', { className: 'grid' },
     el('div', { className: 'card' }, el('h2', {}, '会員証デザイン'), el('div', { className: 'hint', style: 'margin-bottom:12px' }, '右のプレビューを見ながら調整し、「保存」を押すと、会員のスマホの会員証に反映されます。'), controls, err, ok,
       el('div', { className: 'row', style: 'margin-top:8px' }, btn('保存', save, 'pri'), btn('カード画像をダウンロード', download), btn('初期状態に戻す', reset, 'dng'), state)),
-    el('div', { className: 'card', style: 'position:sticky;top:72px;align-self:start' }, el('h2', {}, 'プレビュー(会員のスマホ画面と同じ表示)'), phone, el('div', { className: 'hint', style: 'margin-top:6px' }, 'サンプルのデータ(来店12回・クーポンあり)です。ショップカードのボタンは、店舗のURLを設定している場合に表示されます。'))));
+    el('div', { className: 'card', style: 'position:sticky;top:58px;align-self:start' }, el('h2', {}, 'プレビュー(会員のスマホ画面と同じ表示)'), phone, el('div', { className: 'hint', style: 'margin-top:6px' }, 'サンプルのデータ(来店12回・クーポンあり)です。ショップカードのボタンは、店舗のURLを設定している場合に表示されます。'))));
 }
 
 // ---------- 会員 ----------

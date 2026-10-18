@@ -1,11 +1,8 @@
 :root{--bg:#f4f5f7;--card:#fff;--ink:#1d2330;--sub:#667085;--line:#e3e6ec;--brand:#06c755;--brand-d:#05a647;--danger:#d92d20;--warn:#fff3cd}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--ink);font-size:13px;line-height:1.45}
-header{background:#fff;border-bottom:1px solid var(--line);padding:6px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20}
+header{--hh:46px;min-height:var(--hh);box-sizing:border-box;background:#fff;border-bottom:1px solid var(--line);padding:6px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20}
 header h1{font-size:16px;margin:0}header .sp{flex:1}
-nav{display:flex;flex-wrap:wrap;gap:0 2px;padding:0 12px;background:#fff;border-bottom:1px solid var(--line)}
-nav button{border:0;background:none;padding:8px 10px;cursor:pointer;color:var(--sub);border-bottom:3px solid transparent;font-size:13px;white-space:nowrap}
-nav button.on{color:var(--ink);border-color:var(--brand);font-weight:600}
 main{padding:12px 16px;max-width:1680px;margin:0 auto}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
 @media(max-width:900px){.grid{grid-template-columns:1fr}}
@@ -47,6 +44,15 @@ td .row{flex-wrap:nowrap}
 
 button.help{border-color:var(--brand);color:var(--brand-d);font-weight:600}
 dialog ol li,dialog ul li{margin-bottom:2px}
+/* ---- 左のサイドバー(PC・タブレット) ---- */
+.shell{display:grid;grid-template-columns:188px minmax(0,1fr);align-items:start}
+.shell>main{margin:0;max-width:none;width:100%}
+nav{position:sticky;top:var(--hh,46px);height:calc(100vh - var(--hh,46px));overflow-y:auto;background:#fff;border-right:1px solid var(--line);padding:4px 0 16px}
+.navgroup{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--sub);padding:14px 16px 4px}
+nav button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 16px;font-size:13px;color:var(--ink);border-left:3px solid transparent;cursor:pointer}
+nav button:hover{background:#f6f7f9}
+nav button.on{background:#eaf7ef;border-left-color:var(--brand);font-weight:700}
+@media(min-width:901px) and (max-width:1100px){.shell{grid-template-columns:164px minmax(0,1fr)}nav button{padding:8px 12px}.navgroup{padding-left:12px}}
 /* ---- ハンバーガーメニュー (PCでは非表示) ---- */
 .burger{display:none}
 @media(max-width:900px){
@@ -59,10 +65,12 @@ dialog ol li,dialog ul li{margin-bottom:2px}
   .burger.on .bars{box-shadow:none;background:transparent}
   .burger.on .bars::before,.burger.on .bars::after{content:"";position:absolute;left:0;top:0;width:16px;height:2px;background:currentColor;border-radius:2px}
   .burger.on .bars::before{transform:rotate(45deg)}.burger.on .bars::after{transform:rotate(-45deg)}
-  nav{display:none;flex-direction:column;gap:0;padding:0;overflow:visible}
-  nav.open{display:flex;box-shadow:0 8px 16px rgba(0,0,0,.08)}
-  nav button{width:100%;text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);border-left:4px solid transparent}
-  nav button.on{border-bottom-color:var(--line);border-left-color:var(--brand);background:#f3faf6}
+  .shell{display:block}
+  nav{display:none;position:static;height:auto;overflow:visible;border-right:0;border-bottom:1px solid var(--line);padding:0}
+  nav.open{display:block;box-shadow:0 8px 16px rgba(0,0,0,.08)}
+  nav button{padding:13px 16px;border-bottom:1px solid var(--line);border-left:4px solid transparent}
+  nav button.on{border-left-color:var(--brand);background:#f3faf6}
+  .navgroup{background:#f4f5f7;padding:6px 16px;border-bottom:1px solid var(--line)}
   main{padding:12px}
   .card{padding:12px}
   .row{gap:6px}
@@ -90,7 +98,7 @@ dialog ol li,dialog ul li{margin-bottom:2px}
   .multi>div>label.lb{display:inline-flex;align-items:center;gap:4px;margin:3px 14px 3px 0}
   .fieldlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 8px}
   .phone{max-height:calc(100vh - 150px)}
-  .grid>.card:has(.phone){position:sticky;top:72px}
+  .grid>.card:has(.phone){position:sticky;top:58px}
 }
 @media(min-width:901px) and (max-width:1200px){
   .grid{grid-template-columns:minmax(0,1fr) 320px}

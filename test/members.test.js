@@ -100,7 +100,7 @@ test('Sheets形式のエクスポート/インポートで往復できる', asyn
   const sheets = app.store.exportSheets();
   assert.deepEqual(Object.keys(sheets).slice(0, 3), ['tenants', 'tenant_urls', 'members']);
   const { Store } = await import('../src/store.js');
-  const s2 = new Store(); s2.importSheets(JSON.parse(JSON.stringify(sheets)));
+  const s2 = new Store().setCipher(app.vault); s2.importSheets(JSON.parse(JSON.stringify(sheets)));
   assert.equal(s2.select('custom_fields').length, app.store.select('custom_fields').length);
   assert.deepEqual(s2.select('member_custom_values')[0].value, '会社員');
 });

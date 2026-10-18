@@ -38,7 +38,28 @@ export const SHEETS = {
 };
 const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result', 'notify_prefs', 'features', 'where', 'role_perms']);
 
+// 保存するときに、セル単位で暗号化する列 (個人情報・連絡先・LINEのID・URLのトークン・操作履歴の詳細)。
+// メモリ上は平文で扱うので、検索・画面・Excel出力は、これまでどおり読みやすい形で使える。暗号化されるのは、Google スプレッドシート(や保存ファイル)に書き出される中身だけ。
+export const ENCRYPTED_COLS = {
+  members: ['user_id', 'name', 'phone', 'email', 'withdraw_reason'],
+  member_custom_values: ['value'],
+  admins: ['email', 'line_user_id'],
+  audit_logs: ['actor', 'detail'], // actor: 会員本人の操作では、LINEのユーザーID
+  tenant_urls: ['token'],
+};
+const ENC = 'enc1:';
+
 export class Store {
+  setCipher(cipher) { this.cipher = cipher; return this; } // { encrypt(text), decrypt(text) } (vault)
+  #sealCell(table, h, text) { return this.cipher && text !== '' && ENCRYPTED_COLS[table]?.includes(h) ? `${ENC}${this.cipher.encrypt(text)}` : text; }
+  #openCell(table, h, cell, plain) {
+    if (typeof cell === 'string' && cell.startsWith(ENC)) {
+      if (!this.cipher) throw new Error('暗号化されたデータを読み込めません(暗号鍵が設定されていません)');
+      try { return this.cipher.decrypt(cell.slice(ENC.length)); } catch { throw new Error(`暗号化されたデータを復号できません(${table}.${h})。DATA_ENCRYPTION_KEY が、保存したときの値と同じか確認してください`); }
+    }
+    if (typeof cell === 'string' && cell !== '' && ENCRYPTED_COLS[table]?.includes(h)) plain.add(table); // まだ暗号化されていない旧データ(次の保存で暗号化する)
+    return cell;
+  }
   constructor(file = null) {
     this.file = file;
     this.t = Object.fromEntries(Object.keys(SHEETS).map((k) => [k, []]));
@@ -73,17 +94,20 @@ export class Store {
     for (const [name, headers] of Object.entries(SHEETS)) {
       out[name] = [headers, ...this.t[name].map((r) => headers.map((h) => {
         const v = r[h];
-        return JSON_COLS.has(h) && v !== undefined ? JSON.stringify(v) : (v ?? '');
+        const text = JSON_COLS.has(h) && v !== undefined ? JSON.stringify(v) : (v ?? '');
+        return typeof text === 'string' ? this.#sealCell(name, h, text) : text;
       }))];
     }
     return out;
   }
+  // 戻り値: まだ暗号化されていない旧データを含むテーブル名(呼び出し側が、保存し直して暗号化する)
   importSheets(sheets) {
+    const plain = new Set();
     for (const [name, [headers, ...rows]] of Object.entries(sheets)) {
       const cols = SHEETS[name] ?? headers;
       this.t[name] = rows.map((cells) => {
         const row = Object.fromEntries(headers.map((h, i) => {
-          const c = cells[i];
+          const c = this.#openCell(name, h, cells[i], plain);
           if (JSON_COLS.has(h)) return [h, c === '' || c === undefined ? (h === 'options' ? [] : undefined) : JSON.parse(c)];
           return [h, c ?? ''];
         }));
@@ -92,5 +116,6 @@ export class Store {
       });
     }
     for (const name of Object.keys(sheets)) this._changed(name);
+    return plain;
   }
 }

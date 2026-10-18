@@ -3,6 +3,7 @@
 //  ストア: SPREADSHEET_ID (Sheets。GOOGLE_SERVICE_ACCOUNT_JSON が無ければキーレス認証) | DATA_FILE (ローカル開発)
 //  初回の運営管理者: OPERATOR_EMAIL / OPERATOR_PASSWORD
 import { createApp } from './app.js';
+import { createVault } from './vault.js';
 import { createServer } from './server.js';
 import { SheetsStore } from './sheetsStore.js';
 import { bootstrapOperator } from './auth.js';
@@ -13,6 +14,7 @@ if (!process.env.DATA_ENCRYPTION_KEY) console.warn('DATA_ENCRYPTION_KEY が未�
 let store;
 if (process.env.SPREADSHEET_ID) {
   store = new SheetsStore({ spreadsheetId: process.env.SPREADSHEET_ID, serviceAccount: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON) : null });
+  store.setCipher(createVault(process.env.SESSION_SECRET, process.env.DATA_ENCRYPTION_KEY || null)); // 読み込む前に鍵を渡す(暗号化された列を復号するため)
   await store.init();
 }
 const app = createApp(store ?? process.env.DATA_FILE ?? null, { secret: process.env.SESSION_SECRET, dataKey: process.env.DATA_ENCRYPTION_KEY || null });

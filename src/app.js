@@ -17,6 +17,7 @@ export function createApp(fileOrStore = null, { secret = randomBytes(32).toStrin
   const store = fileOrStore instanceof Store ? fileOrStore : new Store(fileOrStore);
   seedMaster(store);
   const vault = createVault(secret, dataKey);
+  store.setCipher(vault); // 個人情報などの列は、保存するときに暗号化する(画面・検索・Excel出力は、これまでどおり)
   const forms = new FormService(store);
   const members = new MemberService(store, forms, vault);
   const coupons = new CouponService(store, vault);

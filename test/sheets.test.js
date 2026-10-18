@@ -1,3 +1,4 @@
+import { createVault } from '../src/vault.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
@@ -25,14 +26,15 @@ function fakeGoogle() {
   };
   return { fetchImpl, sheets, log, get authCalls() { return authCalls; } };
 }
+const KEY = 'k'.repeat(40); // 再起動しても同じ鍵 (暗号化された列を復号するため)
 const sa = () => ({ client_email: 'sa@x.iam', private_key: generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }) });
 
 test('SheetsStore: 初期化→書き込み→再起動で復元。変更シートのみ書き戻し', async () => {
   const g = fakeGoogle();
   const mk = () => new SheetsStore({ spreadsheetId: 'SID', serviceAccount: sa(), fetchImpl: g.fetchImpl, tokenUrl: 'https://oauth2.example/token' });
-  const s1 = mk(); await s1.init();
+  const s1 = mk().setCipher(createVault(KEY)); await s1.init();
   assert.deepEqual([...g.sheets.keys()].sort(), Object.keys(SHEETS).sort());
-  const app = createApp(s1);
+  const app = createApp(s1, { secret: KEY });
   app.forms.createTenant(OP, 'SHOP001', 'テスト店');
   app.forms.applyTemplate(ADMIN_A, 'SHOP001', 'standard');
   const f = app.forms.fields('SHOP001');
@@ -46,8 +48,8 @@ test('SheetsStore: 初期化→書き込み→再起動で復元。変更シー�
   assert.ok(!written.includes('custom_fields'));
 
   // 先頭ゼロの電話番号/会員番号が文字列のまま、再起動後に復元される
-  const s2 = mk(); await s2.init();
-  const app2 = createApp(s2);
+  const s2 = mk().setCipher(createVault(KEY)); await s2.init();
+  const app2 = createApp(s2, { secret: KEY });
   const mem = s2.find('members', (x) => x.user_id === 'U1');
   assert.equal(mem.phone, '09011112222'); assert.equal(mem.member_number, '000001'); assert.equal(mem.email, 'a@b.co');
   assert.equal(app2.forms.fields('SHOP001').length, 5);

@@ -70,8 +70,9 @@ export class SheetsStore extends Store {
       sheets[name] = [head, ...rows];
     });
     const orig = this._changed; this._changed = () => {};
-    this.importSheets(sheets);
+    const plain = this.importSheets(sheets);
     this._changed = orig;
+    for (const t of plain) this.dirty.add(t); // 暗号化されていなかった旧データは、この保存で暗号化される
     await this.flush();
   }
 

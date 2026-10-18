@@ -225,7 +225,7 @@ async function formView() {
   const redraw = () => { ST.fields = d.fields; return formView(); };
   const orig = new Map(d.orig.map((f) => [f.field_id, f]));
   const changed = (f) => f._new || !sameAttrs(f, orig.get(f.field_id));
-  const list = el('div');
+  const list = el('div', { className: 'fieldlist' });
   let dragId = null;
   d.fields.forEach((f) => {
     const row = el('div', { className: `field ${f.enabled ? '' : 'off'}`, draggable: canEdit });
@@ -418,7 +418,7 @@ async function cardView() {
     return el('div', { className: 'row' }, btn(get() ? '画像を変更' : '画像を選ぶ', () => file.click()), get() ? btn('画像を外す', () => { set(null); touch(); drawControls(); }, 'sm') : null, note, file);
   };
 
-  const controls = el('div');
+  const controls = el('div', { className: 'multi' }); // 広い画面では、設定項目を複数の列に並べる
   function drawControls() {
     const bg = design.background;
     const sec = (title, ...kids) => el('div', { style: 'margin-bottom:18px' }, el('h2', { style: 'margin-top:0' }, title), ...kids);
@@ -479,7 +479,7 @@ async function cardView() {
   layout(el('div', { className: 'grid' },
     el('div', { className: 'card' }, el('h2', {}, '会員証デザイン'), el('div', { className: 'hint', style: 'margin-bottom:12px' }, '右のプレビューを見ながら調整し、「保存」を押すと、会員のスマホの会員証に反映されます。'), controls, err, ok,
       el('div', { className: 'row', style: 'margin-top:8px' }, btn('保存', save, 'pri'), btn('カード画像をダウンロード', download), btn('初期状態に戻す', reset, 'dng'), state)),
-    el('div', { className: 'card', style: 'position:sticky;top:12px;align-self:start' }, el('h2', {}, 'プレビュー(会員のスマホ画面と同じ表示)'), phone, el('div', { className: 'hint', style: 'margin-top:6px' }, 'サンプルのデータ(来店12回・クーポンあり)です。ショップカードのボタンは、店舗のURLを設定している場合に表示されます。'))));
+    el('div', { className: 'card', style: 'position:sticky;top:72px;align-self:start' }, el('h2', {}, 'プレビュー(会員のスマホ画面と同じ表示)'), phone, el('div', { className: 'hint', style: 'margin-top:6px' }, 'サンプルのデータ(来店12回・クーポンあり)です。ショップカードのボタンは、店舗のURLを設定している場合に表示されます。'))));
 }
 
 // ---------- 会員 ----------
@@ -655,9 +655,18 @@ async function urlsView() {
 async function auditView() {
   if (ST.me.role === 'OPERATOR' && !ST.tenant) return layout(el('div', { className: 'card' }, '上部で店舗を選択してください。'));
   if (ST.me.role === 'STAFF') return layout(el('div', { className: 'card' }, '権限がありません。'));
-  const { logs } = await api('/audit');
-  layout(el('div', { className: 'card' }, el('h2', {}, '監査ログ(新しい順・最大200件)'), el('table', {}, el('tr', {}, ['日時', '操作者', '操作', '対象', '詳細'].map((h) => el('th', {}, h))),
-    logs.slice(-200).reverse().map((l) => el('tr', {}, [l.created_at.replace('T', ' ').slice(0, 19), l.actor.slice(0, 8), l.action, l.target, JSON.stringify(l.detail)].map((x) => el('td', { style: 'word-break:break-all' }, x)))))));
+  const { logs } = await api('/audit'), all = logs.slice(-200).reverse(), PER = 25;
+  const body = el('div'), pager = el('div', { className: 'row', style: 'justify-content:center;margin-top:8px' });
+  let page = 0;
+  const draw = () => {
+    const pages = Math.max(1, Math.ceil(all.length / PER)); page = Math.min(page, pages - 1);
+    body.replaceChildren(el('table', {}, el('tr', {}, ['日時', '操作者', '操作', '対象', '詳細'].map((h) => el('th', {}, h))),
+      all.slice(page * PER, page * PER + PER).map((l) => el('tr', {}, [l.created_at.replace('T', ' ').slice(0, 19), l.actor.slice(0, 8), l.action, l.target, JSON.stringify(l.detail)].map((x, i) => el('td', { style: `font-size:12px;white-space:nowrap;${i === 4 ? 'max-width:420px;overflow:hidden;text-overflow:ellipsis' : ''}`, title: String(x) }, String(x)))))));
+    pager.replaceChildren(btn('← 前へ', () => { page--; draw(); }, 'sm'), el('span', { className: 'hint' }, `${page + 1} / ${pages} ページ(全${all.length}件)`), btn('次へ →', () => { page++; draw(); }, 'sm'));
+    pager.children[0].disabled = page === 0; pager.children[2].disabled = page >= pages - 1;
+  };
+  draw();
+  layout(el('div', { className: 'card' }, el('h2', {}, '監査ログ(新しい順・最大200件)'), body, pager));
 }
 
 // ---------- 補助 ----------

@@ -1,35 +1,35 @@
 :root{--bg:#f4f5f7;--card:#fff;--ink:#1d2330;--sub:#667085;--line:#e3e6ec;--brand:#06c755;--brand-d:#05a647;--danger:#d92d20;--warn:#fff3cd}
 *{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
-header{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--ink);font-size:13px;line-height:1.45}
+header{background:#fff;border-bottom:1px solid var(--line);padding:6px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20}
 header h1{font-size:16px;margin:0}header .sp{flex:1}
-nav{display:flex;gap:4px;padding:0 20px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto}
-nav button{border:0;background:none;padding:12px 14px;cursor:pointer;color:var(--sub);border-bottom:3px solid transparent;font-size:14px;white-space:nowrap}
+nav{display:flex;flex-wrap:wrap;gap:0 2px;padding:0 12px;background:#fff;border-bottom:1px solid var(--line)}
+nav button{border:0;background:none;padding:8px 10px;cursor:pointer;color:var(--sub);border-bottom:3px solid transparent;font-size:13px;white-space:nowrap}
 nav button.on{color:var(--ink);border-color:var(--brand);font-weight:600}
-main{padding:20px;max-width:1200px;margin:0 auto}
-.grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px}
+main{padding:12px 16px;max-width:1680px;margin:0 auto}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
 @media(max-width:900px){.grid{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
-.card h2{font-size:15px;margin:0 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.card h2{font-size:14px;margin:0 0 8px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.field{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;background:#fff}
+.field{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff}
 .field.off{opacity:.55;background:#fafafa}.field.drag{outline:2px dashed var(--brand)}
 .handle{cursor:grab;color:var(--sub);user-select:none;padding:0 4px}
 .field .name{flex:1;min-width:0}.field .name b{display:block;overflow:hidden;text-overflow:ellipsis}
 .badge{font-size:11px;background:#eef1f6;color:var(--sub);padding:2px 6px;border-radius:4px;margin-right:4px}
 .badge.int{background:#eaf2ff;color:#1a56db}.badge.warn{background:var(--warn);color:#7a5b00}
 button.btn,select,input,textarea{font:inherit}
-button.btn{padding:7px 12px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer}
+button.btn{padding:5px 10px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer}
 button.btn:hover{background:#f6f7f9}
 button.pri{background:var(--brand);color:#fff;border-color:var(--brand)}button.pri:hover{background:var(--brand-d)}
 button.dng{color:var(--danger)}
 button.sm{padding:4px 8px;font-size:12px}
-input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=tel],input[type=url],select,textarea{width:100%;padding:8px;border:1px solid #cfd4dc;border-radius:6px;background:#fff}
-textarea{min-height:90px}
-label.lb{display:block;margin:10px 0 4px;font-weight:600;font-size:13px}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=tel],input[type=url],select,textarea{width:100%;padding:6px 8px;border:1px solid #cfd4dc;border-radius:6px;background:#fff}
+textarea{min-height:64px}
+label.lb{display:block;margin:7px 0 3px;font-weight:600;font-size:12px}
 .hint{color:var(--sub);font-size:12px}
 .err{color:var(--danger);margin:8px 0;white-space:pre-wrap}.ok{color:var(--brand-d)}
-table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table{width:100%;border-collapse:collapse}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 th{color:var(--sub);font-weight:600;font-size:12px}tr.click{cursor:pointer}tr.click:hover{background:#f6f7f9}
 dialog{border:0;border-radius:12px;padding:20px;width:min(560px,94vw);max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(0,0,0,.4)}
@@ -70,4 +70,29 @@ dialog ol li,dialog ul li{margin-bottom:2px}
   .cond{grid-template-columns:1fr 1fr}
   table{display:block;max-width:100%;overflow-x:auto}
   .phone{max-width:100%}
+}
+
+/* ---- PC・タブレット: スクロールを減らす ---- */
+/* 画面の中身(カード)を、幅に応じて2列以上に並べる。表の入ったカードと、左右に分かれる画面は、全幅のまま */
+@media(min-width:901px){
+  main>div:not(.grid){display:grid;grid-template-columns:repeat(auto-fit,minmax(480px,1fr));gap:12px;align-items:start}
+  main>div:not(.grid)>.card{margin-bottom:0}
+  main>div:not(.grid)>.card:has(table),main>div:not(.grid)>.card:has(.grid){grid-column:1/-1}
+  main>div:not(.grid)>.card:has(table){order:9} /* 表のカードは、設定のカードのあと(全幅)に置く */
+  .multi{columns:2 300px;column-gap:22px}
+  .multi>div{break-inside:avoid;margin-bottom:10px}
+  .multi>div h2{margin-bottom:4px}
+  /* 項目名と入力欄を横に並べて、縦の長さを減らす */
+  .multi div:not([style]):has(>label.lb:first-child){display:grid;grid-template-columns:104px minmax(0,1fr);gap:0 8px;align-items:center;margin:4px 0}
+  .multi div:not([style]):has(>label.lb:first-child)>label.lb{margin:0}
+  .multi div:not([style]):has(>label.lb:first-child)>.hint{grid-column:2}
+  .multi input[type=color]{height:28px}
+  .multi>div>label.lb{display:inline-flex;align-items:center;gap:4px;margin:3px 14px 3px 0}
+  .fieldlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 8px}
+  .phone{max-height:calc(100vh - 150px)}
+  .grid>.card:has(.phone){position:sticky;top:72px}
+}
+@media(min-width:901px) and (max-width:1200px){
+  .grid{grid-template-columns:minmax(0,1fr) 320px}
+  .multi{columns:2 250px;column-gap:16px}
 }

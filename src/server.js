@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { OPS_HELP } from './opshelp.js';
 import { deliveryOverview } from './overview.js';
 import { getRolePerms, setRolePerms } from './roleperms.js';
+import { buildManual } from './manual.js';
 import { FEATURES, featureOn, featureMap, setFeatures, featureForPath } from './features.js';
 // HTTP サーバ: 会員向け(LIFF/ミニアプリ)API・管理API・静的ファイル。
 // 店舗の特定: 会員側は URL 内 token (サーバ検証)、管理側はログインした管理者の tenant_id (リクエスト値は信用しない)。
@@ -25,7 +26,7 @@ const JS = 'text/javascript; charset=utf-8';
 const STATIC = { '/app': ['app.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/formkit.js': ['formkit.js', JS],
   '/admin': ['admin.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', JS], '/admin.css': ['admin.css', 'text/css; charset=utf-8'],
   '/cardkit.js': ['cardkit.js', JS], '/vendor/qrcode.min.js': ['vendor/qrcode.min.js', JS], '/vendor/jsQR.js': ['vendor/jsQR.js', JS] };
-const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.net; style-src 'self' 'unsafe-inline'; " +
   "connect-src 'self' https://*.line.me https://*.line-apps.com https://*.line-scdn.net; img-src 'self' data: blob: https:; frame-ancestors 'self'; base-uri 'none'";
@@ -314,6 +315,10 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     // 来店 (QRスキャン / 履歴)
     if (path === '/visits/scan' && req.method === 'POST') { const t = needTenant(), r = app.members.scanVisit(actor, t, body.code); return ok({ ...r, rewards: await app.visitRules.onVisit(t, r.member_id) }); }
     if (isOp && (m = /^\/tenants\/([\w-]+)\/role-perms$/.exec(path))) { if (req.method === 'GET') return ok(getRolePerms(app.store, actor, m[1])); if (req.method === 'PUT') return ok(setRolePerms(app.store, actor, m[1], body)); }
+    if (isOp && (m = /^\/tenants\/([\w-]+)\/manual$/.exec(path)) && req.method === 'POST') { // 取扱説明書(HTML)を、その店舗の機能・権限に合わせて作る
+      const r = buildManual(app.store, actor, m[1], { role: body.role, contact: body.contact, note: body.note, origin: publicOrigin ?? `https://${req.headers.host}`, record: body.record !== false });
+      return send(res, 200, r.html, 'text/html; charset=utf-8', { 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'", 'x-manual-version': String(r.version) });
+    }
     if (isOp && path === '/ops-help' && req.method === 'GET') return ok({ help: OPS_HELP });
     if (path === '/delivery-overview' && req.method === 'GET') return ok(deliveryOverview(app, actor, needTenant()));
     if (path === '/scan-mode' && req.method === 'GET') return ok({ mode: app.members.scanMode(needTenant()) });

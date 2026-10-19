@@ -984,6 +984,31 @@ async function rankView() {
 }
 
 // ---------- 運営: 店舗ごとの権限設定(店舗スタッフ・店舗管理者) ----------
+// ---------- 運営: 取扱説明書の発行 ----------
+// その店舗に与えている機能と、店舗スタッフ・店舗管理者の権限に合わせて、使える操作だけをまとめた説明書(HTML)を作る
+async function manualDialog(t) {
+  const err = el('div', { className: 'err' }), info = el('div', { className: 'hint' });
+  const role = el('select', {}, [['STORE_ADMIN', '店舗管理者向け'], ['STAFF', '店舗スタッフ向け']].map(([v, l]) => el('option', { value: v }, l)));
+  const contact = el('textarea', { style: 'min-height:56px', maxLength: 300, placeholder: '例: ○○運営事務局 TEL 03-0000-0000 / support@example.com(平日10〜18時)' });
+  const note = el('textarea', { style: 'min-height:56px', maxLength: 1000, placeholder: '(任意)表紙に載せる、運営からのお知らせ' });
+  const frame = el('iframe', { title: '取扱説明書のプレビュー', style: 'width:100%;height:56vh;border:1px solid #cfd6e0;border-radius:8px;background:#fff;display:none' });
+  let url = null, issued = false;
+  const make = async (record) => { const blob = await api(`/tenants/${t.tenant_id}/manual`, { method: 'POST', body: { role: role.value, contact: contact.value, note: note.value, record }, blob: true }); if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(blob); frame.src = url; frame.style.display = ''; return blob; };
+  const preview = run(err, async () => { await make(false); info.textContent = 'プレビューです(発行の記録は、まだ残りません)。内容を確認して、「発行してダウンロード」を押してください。'; });
+  const issue = run(err, async () => {
+    const blob = await make(true); issued = true;
+    const a = el('a', { href: url, download: `manual_${t.tenant_id}_${role.value === 'STAFF' ? 'staff' : 'admin'}_${new Date().toISOString().slice(0, 10)}.html` }); document.body.append(a); a.click(); a.remove();
+    info.textContent = `発行しました(${blob.size.toLocaleString()} バイト)。ダウンロードしたファイルを、クライアントにお渡しください。PDFにするときは、ファイルをブラウザで開き、「印刷」から「PDFに保存」を選びます。`;
+  });
+  const print = () => { try { frame.contentWindow.print(); } catch { err.textContent = '先にプレビューを表示してください'; } };
+  const d = el('dialog', { style: 'width:min(900px,96vw)' }, el('h2', {}, `${t.name} の取扱説明書を発行`),
+    el('div', { className: 'hint', style: 'margin-bottom:8px' }, 'この店舗に与えている機能と、選んだ立場(店舗管理者/店舗スタッフ)の権限に合わせて、「使える操作だけ」を項目ごとにまとめた説明書を作ります。機能や権限を変えたときは、作り直して、新しい版をお渡しください。'),
+    lab('対象', role), lab('お問い合わせ先(表紙に載せます)', contact), lab('運営からのお知らせ(任意)', note), err,
+    el('div', { className: 'row', style: 'margin:10px 0' }, btn('プレビュー', preview), btn('発行してダウンロード', issue, 'pri'), btn('印刷 / PDF', print)), info, frame,
+    el('div', { className: 'row', style: 'margin-top:10px;justify-content:flex-end' }, btn('閉じる', () => d.close())));
+  d.addEventListener('close', () => { if (url) URL.revokeObjectURL(url); d.remove(); }); document.body.append(d); d.showModal();
+}
+
 async function rolePermsDialog(t) {
   const d0 = await api(`/tenants/${t.tenant_id}/role-perms`), err = el('div', { className: 'err' });
   const sel = { STAFF: new Set(d0.roles.STAFF), STORE_ADMIN: new Set(d0.roles.STORE_ADMIN) };
@@ -1227,7 +1252,7 @@ async function opsView() {
   const mp = el('input', { type: 'text', placeholder: '利用目的(任意)' }), mo = el('textarea', { placeholder: '選択式の場合: 選択肢を1行に1つ' });
   const bt = el('textarea', { value: terms.join('\n'), style: 'min-height:140px' });
   layout(el('div', {},
-    el('div', { className: 'card' }, el('h2', {}, '店舗'), tenants.map((t) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, t.name), el('span', { className: 'hint' }, t.tenant_id), el('span', { className: 'hint' }, Object.values(t.features).some((v) => !v) ? `制限あり(${Object.values(t.features).filter((v) => !v).length}機能オフ)` : ''), btn('機能設定', () => featuresDialog(t), 'sm'), btn('権限設定', () => rolePermsDialog(t), 'sm')))),
+    el('div', { className: 'card' }, el('h2', {}, '店舗'), tenants.map((t) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, t.name), el('span', { className: 'hint' }, t.tenant_id), el('span', { className: 'hint' }, Object.values(t.features).some((v) => !v) ? `制限あり(${Object.values(t.features).filter((v) => !v).length}機能オフ)` : ''), btn('機能設定', () => featuresDialog(t), 'sm'), btn('権限設定', () => rolePermsDialog(t), 'sm'), btn('説明書を発行', () => manualDialog(t), 'sm')))),
       el('div', { className: 'row' }, tid, tname, btn('店舗を作成', run(e1, async () => { const r = await api('/tenants', { method: 'POST', body: { tenantId: tid.value.trim(), name: tname.value.trim() } }); infoDialog('店舗を作成しました', [`登録token: ${r.registrationToken}`]); render(); }), 'pri')), e1),
     el('div', { className: 'card' }, el('h2', {}, '管理者アカウント'), adminsCard(admins, e2, render),
       el('div', { className: 'row', style: 'margin-top:12px' }, aemail, apw, arole, atenant, btn('作成', run(e2, async () => { await api('/admins', { method: 'POST', body: { email: aemail.value, password: apw.value, role: arole.value, tenantId: arole.value === 'OPERATOR' ? undefined : atenant.value } }); render(); }), 'pri')), e2),

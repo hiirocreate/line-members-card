@@ -183,3 +183,34 @@ test('店舗ごとのロール別権限: 運営だけが設定でき、すぐ反
   assert.equal(can(who(sTok), 'MESSAGE_SEND'), false); assert.equal(can(who(aTok), 'EXPORT_MEMBERS'), true); assert.equal(app.store.find('tenants', (t) => t.tenant_id === T).role_perms.STAFF, undefined);
   assert.ok(app.store.select('audit_logs').some((a) => a.action === 'ROLE_PERMS'));
 });
+
+test('取扱説明書: 店舗の機能・権限に合わせた内容 / 運営だけが発行 / 版が増える / 入力は無害化', async () => {
+  const { buildManual } = await import('../src/manual.js');
+  const { setFeatures } = await import('../src/features.js');
+  const { setRolePerms } = await import('../src/roleperms.js');
+  const { app } = env(); const st = app.store;
+  assert.throws(() => buildManual(st, ADMIN_A, T, { role: 'STORE_ADMIN' }), /権限/); assert.throws(() => buildManual(st, OP, T, { role: 'X' }), /不正/); assert.throws(() => buildManual(st, OP, 'none', { role: 'STORE_ADMIN' }), /存在しません/);
+  const m1 = buildManual(st, OP, T, { role: 'STORE_ADMIN', origin: 'https://example.run.app/', contact: '運営 <b>TEL</b>', note: 'お知らせ' });
+  const titles = (m) => m.sections.map((s) => s.id);
+  for (const id of ['start', 'members', 'scan', 'coupons', 'messages', 'schedule', 'birthday', 'visitrules', 'overview', 'rank', 'card', 'form', 'urls', 'line', 'audit', 'account', 'customer', 'faq', 'rules']) assert.ok(titles(m1).includes(id), id);
+  assert.equal(m1.version, 1); assert.match(m1.html, /https:\/\/example\.run\.app\/admin/); assert.match(m1.html, /テスト店 様/); assert.match(m1.html, /店舗管理者向け/);
+  assert.ok(!m1.html.includes('<b>TEL</b>') && m1.html.includes('&lt;b&gt;TEL&lt;/b&gt;')); // 入力は無害化される
+  assert.ok(!/<script/i.test(m1.html)); assert.ok(!/CRON_SECRET|gcloud|Scheduler|data-key/.test(m1.html)); // 運営向けの内容は含めない
+  assert.equal(buildManual(st, OP, T, { role: 'STORE_ADMIN' }).version, 2); // 版が増える
+  assert.equal(buildManual(st, OP, T, { role: 'STORE_ADMIN', record: false }).version, 3); assert.equal(buildManual(st, OP, T, { role: 'STORE_ADMIN', record: false }).version, 3); // プレビューは記録しない
+  assert.equal(buildManual(st, OP, T, { role: 'STAFF' }).version, 1); // 版は対象ごと
+  // 機能オフ・権限なしの項目は、載らない
+  setFeatures(st, OP, T, { coupons: false, rank: false, birthday: false, qrflip: false });
+  const m2 = buildManual(st, OP, T, { role: 'STORE_ADMIN', record: false });
+  for (const id of ['coupons', 'rank', 'birthday']) assert.ok(!titles(m2).includes(id), id);
+  assert.ok(!m2.html.includes('クーポンを使用済みにする')); assert.ok(!m2.html.includes('会員ランク」・条件'));
+  const staff = buildManual(st, OP, T, { role: 'STAFF', record: false });
+  assert.deepEqual(titles(staff).filter((x) => ['members', 'scan', 'messages', 'card', 'form', 'line', 'audit'].includes(x)), ['members', 'scan']); // スタッフの標準権限: 会員の閲覧と来店記録
+  assert.ok(!staff.html.includes('退会処理')); assert.ok(!staff.html.includes('Excel出力'));
+  setRolePerms(st, OP, T, { STAFF: ['MEMBER_VIEW', 'MEMBER_EDIT', 'MESSAGE_SEND', 'MEMBER_STATUS'] });
+  const staff2 = buildManual(st, OP, T, { role: 'STAFF', record: false });
+  assert.ok(titles(staff2).includes('messages') && titles(staff2).includes('schedule')); assert.ok(staff2.html.includes('退会処理')); // 運営が付けた権限が反映される
+  st.update('tenants', (x) => x.tenant_id === T, { scan_mode: 'STORE_QR' });
+  assert.match(buildManual(st, OP, T, { role: 'STORE_ADMIN', record: false }).html, /現在の設定: 店舗のQRを、会員が読み取る方式/);
+  assert.ok(st.select('audit_logs').some((a) => a.action === 'MANUAL_ISSUE' && a.detail.version === 2));
+});

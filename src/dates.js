@@ -18,3 +18,10 @@ export function daysUntilBirthday(birthday, nowMs = Date.now()) {
 // 今日から n 日後の日付 (YYYY-MM-DD, 日本時間)
 export const addDaysJst = (nowMs, n) => { const p = jstParts(nowMs + n * 86400_000); return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`; };
 export const endOfDayJst = (day) => Date.parse(`${day}T23:59:59.999+09:00`);
+
+// ISO(UTC)の日時を、日本時間の「YYYY/MM/DD HH:mm」にする (出力ファイル・表示用)。日付だけなら withTime=false
+export function fmtJst(iso, withTime = true) {
+  const t = Date.parse(iso); if (!iso || Number.isNaN(t)) return '';
+  const s = new Date(t + 9 * 3600_000).toISOString();
+  return `${s.slice(0, 4)}/${s.slice(5, 7)}/${s.slice(8, 10)}${withTime ? ` ${s.slice(11, 16)}` : ''}`;
+}

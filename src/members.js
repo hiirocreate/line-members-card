@@ -4,7 +4,7 @@ import { validateValue, displayValue } from './fieldTypes.js';
 import { require_, canSeeField, can } from './permissions.js';
 import { audit } from './audit.js';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { daysUntilBirthday } from './dates.js';
+import { daysUntilBirthday, fmtJst } from './dates.js';
 import { buildXlsx } from './xlsx.js';
 
 const now = () => new Date().toISOString();
@@ -380,14 +380,14 @@ export class MemberService {
     require_(actor, 'EXPORT_MEMBERS', tenantId);
     const { fields } = this.#rows(actor, tenantId);
     const fieldById = new Map(fields.map((f) => [f.field_id, f]));
-    const BUILTIN = { member_number: '会員番号', registered_at: '登録日', status: 'ステータス', user_id: 'LINEユーザーID',
-      last_visit_at: '最終来店日', visit_count: '来店回数' };
+    const BUILTIN = { member_number: '会員番号', registered_at: '登録日時', status: 'ステータス', user_id: 'LINEユーザーID',
+      last_visit_at: '最終来店日時', visit_count: '来店回数' };
     const head = []; const getters = [];
     for (const c of columns) {
       if (BUILTIN[c]) {
         if (c === 'user_id' && !can(actor, 'EXPORT_PERSONAL_DATA')) throw new ValidationError('この項目の出力権限がありません: LINEユーザーID');
         if (['last_visit_at', 'visit_count'].includes(c) && !can(actor, 'EXPORT_VISITS')) throw new ValidationError('来店情報の出力権限がありません');
-        head.push(BUILTIN[c]); getters.push(({ m }) => m[c]);
+        head.push(BUILTIN[c]); getters.push(({ m }) => (c === 'last_visit_at' || c === 'registered_at' ? fmtJst(m[c]) : m[c])); // 日時は日本時間で出力
         continue;
       }
       const f = fieldById.get(c);

@@ -519,7 +519,7 @@ function condBuilder(state) {
 }
 
 // 一覧の表示項目 (標準項目 + 会員登録フォームの全項目)。選択と並び順は、この端末のブラウザに保存される。
-const BUILTIN_COLS = [['member_number', '会員番号'], ['status', '状態'], ['registered_at', '登録日'], ['visit_count', '来店回数'], ['last_visit_at', '最終来店']];
+const BUILTIN_COLS = [['member_number', '会員番号'], ['status', '状態'], ['registered_at', '登録日時'], ['visit_count', '来店回数'], ['last_visit_at', '最終来店']];
 const colStoreKey = () => `mc:${ST.tenant ?? ST.me.tenantId}:${ST.me.id}`;
 const prefs = {
   load() { try { return JSON.parse(localStorage.getItem(colStoreKey()) ?? 'null'); } catch { return null; } },
@@ -610,7 +610,7 @@ async function membersView() {
 
 function exportCard(where) {
   const cols = [['member_number', '会員番号'], ['registered_at', '登録日'], ['status', 'ステータス'],
-    ...(can('EXPORT_PERSONAL_DATA') ? [['user_id', 'LINEユーザーID']] : []), ...(can('EXPORT_VISITS') ? [['last_visit_at', '最終来店日'], ['visit_count', '来店回数']] : []),
+    ...(can('EXPORT_PERSONAL_DATA') ? [['user_id', 'LINEユーザーID']] : []), ...(can('EXPORT_VISITS') ? [['last_visit_at', '最終来店日時'], ['visit_count', '来店回数']] : []),
     ...ST.fields.filter((f) => f.sensitivity === 'NORMAL' || can('EXPORT_PERSONAL_DATA')).map((f) => [f.field_id, f.field_name])];
   const checks = cols.map(([k, t]) => ({ k, t, cb: el('input', { type: 'checkbox', checked: ['member_number'].includes(k) || ST.fields.some((f) => f.field_id === k && f.enabled) }) }));
   const err = el('div', { className: 'err' });
@@ -667,7 +667,7 @@ async function auditView() {
   const draw = () => {
     const pages = Math.max(1, Math.ceil(all.length / PER)); page = Math.min(page, pages - 1);
     body.replaceChildren(el('table', {}, el('tr', {}, ['日時', '操作者', '操作', '対象', '詳細'].map((h) => el('th', {}, h))),
-      all.slice(page * PER, page * PER + PER).map((l) => el('tr', {}, [l.created_at.replace('T', ' ').slice(0, 19), l.actor.slice(0, 8), l.action, l.target, JSON.stringify(l.detail)].map((x, i) => el('td', { style: `font-size:12px;white-space:nowrap;${i === 4 ? 'max-width:420px;overflow:hidden;text-overflow:ellipsis' : ''}`, title: String(x) }, String(x)))))));
+      all.slice(page * PER, page * PER + PER).map((l) => el('tr', {}, [dt(l.created_at, true), l.actor.slice(0, 8), l.action, l.target, JSON.stringify(l.detail)].map((x, i) => el('td', { style: `font-size:12px;white-space:nowrap;${i === 4 ? 'max-width:420px;overflow:hidden;text-overflow:ellipsis' : ''}`, title: String(x) }, String(x)))))));
     pager.replaceChildren(btn('← 前へ', () => { page--; draw(); }, 'sm'), el('span', { className: 'hint' }, `${page + 1} / ${pages} ページ(全${all.length}件)`), btn('次へ →', () => { page++; draw(); }, 'sm'));
     pager.children[0].disabled = page === 0; pager.children[2].disabled = page >= pages - 1;
   };
@@ -737,7 +737,7 @@ async function scanView() {
   const loadList = async () => {
     const { visits } = await api('/visits');
     list.replaceChildren(el('table', {}, el('tr', {}, ['日時', '会員番号', '氏名', '方法'].map((h) => el('th', {}, h))),
-      visits.map((v) => el('tr', {}, [v.visited_at.replace('T', ' ').slice(0, 16), v.member_number, v.name, v.method === 'QR' ? 'QR' : '手動'].map((x) => el('td', {}, x))))));
+      visits.map((v) => el('tr', {}, [dt(v.visited_at, true), v.member_number, v.name, v.method === 'QR' ? 'QR' : '手動'].map((x) => el('td', {}, x))))));
   };
   const submit = async (code) => { // 会員証のQR(来店 MC1.)と、クーポンのQR(MCP1.)の両方を読み取れる
     try {
@@ -863,7 +863,7 @@ async function overviewView() {
       row('送るタイミング', `誕生日の${b.days_before}日前から当日までに入った会員へ、毎日 朝9時以降に送信(1人につき年1回)`), row('メッセージ', clip(b.message_text)),
       row('クーポン', b.coupon_title ? `${b.coupon_title}${b.coupon_days ? `(届いてから${b.coupon_days}日間)` : ''}` : 'なし'),
       b.hasBirthdayField ? row('いまの対象', `誕生日が近い会員 ${b.preview.matched}人 → 送信予定 ${b.preview.willSend}人(同意なし ${b.preview.skipped.notConsented}人・今年送信済み ${b.preview.skipped.alreadySent}人)`) : row('注意', el('span', { className: 'err' }, '会員登録フォームに「生年月日」の項目がありません')),
-      row('前回の実行', b.last_run_at ? `${b.last_run_at.replace('T', ' ').slice(0, 16)} UTC — ${b.last_result?.error ? `エラー: ${b.last_result.error}` : `送信${b.last_result?.sent ?? 0}人`}` : 'まだ実行されていません')));
+      row('前回の実行', b.last_run_at ? `${dt(b.last_run_at, true)} — ${b.last_result?.error ? `エラー: ${b.last_result.error}` : `送信${b.last_result?.sent ?? 0}人`}` : 'まだ実行されていません')));
   }
   if (o.schedules) { const list = o.schedules, upcoming = list.filter((s) => s.next.at);
     cards.push(el('div', { className: 'card' }, head('予約メッセージ', pill(`${upcoming.length}件 予定あり`, upcoming.length ? 'on' : 'off'), 'schedule'),
@@ -920,7 +920,7 @@ async function scheduleView() {
   ST.fields = (await api('/form')).fields; await loadRankTitles();
   const { schedules } = await api('/schedules'), err = el('div', { className: 'err' });
   const { coupons: offerable } = (can('COUPON_MANAGE') && featOn('coupons')) ? await api('/coupons/active') : { coupons: [] };
-  const result = (s) => { const r = s.last_result; return !r ? '-' : r.error ? `エラー: ${r.error}` : `${(r.at || '').replace('T', ' ').slice(0, 16)} 送信${r.sent}人${r.failed ? `(失敗${r.failed})` : ''}`; };
+  const result = (s) => { const r = s.last_result; return !r ? '-' : r.error ? `エラー: ${r.error}` : `${dt(r.at, true)} 送信${r.sent}人${r.failed ? `(失敗${r.failed})` : ''}`; };
   layout(el('div', { className: 'card' }, el('h2', {}, '予約メッセージ(定期)'),
     el('div', { className: 'hint', style: 'margin-bottom:10px' }, '日時を決めて、メッセージ(とクーポン)を自動で配信します。1回だけ・毎日・毎週・毎月から選べます。送るのは、LINE配信に同意した有効な会員だけです。'),
     el('div', { className: 'row', style: 'margin-bottom:10px' }, btn('＋ 予約を作成', () => scheduleDialog(null, offerable, render), 'pri')),
@@ -1103,7 +1103,7 @@ async function birthdayView() {
     (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンを添付(任意)', sel) : null,
     (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンの有効日数(配信から何日間)', cdays, '例: 30 → 受け取ってから30日間使えます。空欄のときは、クーポン自体の設定(有効期限など)に従います。クーポンに有効期限がある場合は、早い方が優先されます。') : null,
     info, err, el('div', { className: 'row' }, btn('保存', save, 'pri'), btn('今すぐ実行', runNow))),
-    el('div', { className: 'card' }, el('h2', {}, '前回の実行'), lr ? el('div', {}, `${(cfg.last_run_at || '').replace('T', ' ').slice(0, 16)} UTC — ${lr.error ? `エラー: ${lr.error}` : `送信 ${lr.sent}人 / 失敗 ${lr.failed}人 / クーポン配布 ${lr.granted}人${lr.deferred ? ` / 持ち越し ${lr.deferred}人` : ''}`}`) : el('div', { className: 'hint' }, 'まだ実行されていません。'))));
+    el('div', { className: 'card' }, el('h2', {}, '前回の実行'), lr ? el('div', {}, `${dt(cfg.last_run_at, true)} — ${lr.error ? `エラー: ${lr.error}` : `送信 ${lr.sent}人 / 失敗 ${lr.failed}人 / クーポン配布 ${lr.granted}人${lr.deferred ? ` / 持ち越し ${lr.deferred}人` : ''}`}`) : el('div', { className: 'hint' }, 'まだ実行されていません。'))));
 }
 
 // ---------- メッセージ配信 ----------
@@ -1134,7 +1134,7 @@ async function messagesView() {
     lab('メッセージ', text), (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンを添付(任意)', couponSel, offerable.length ? 'メッセージの下に、クーポンのカード(「クーポンを使う」ボタン付き)が付きます。届いた会員にだけ配布されます。' : '有効なクーポンがありません。「クーポン」タブで作成してください。') : null,
     (can('COUPON_MANAGE') && featOn('coupons')) ? lab('クーポンの有効日数(配信から何日間・任意)', mdays, '例: 30 → 届いてから30日間使えます。空欄のときは、クーポン自体の設定に従います。') : null, el('h2', { style: 'margin-top:16px' }, '配信先の絞り込み(任意)'), cb.node, count, err, el('div', { className: 'row' }, preview, sendBtn)),
     el('div', { className: 'card' }, el('h2', {}, '配信履歴'), el('table', {}, el('tr', {}, ['日時', '内容', '対象', '成功', '失敗', '状態'].map((h) => el('th', {}, h))),
-      messages.map((m) => el('tr', {}, [m.created_at.replace('T', ' ').slice(0, 16), m.text.slice(0, 40), m.audience, m.sent, m.failed, m.status].map((x) => el('td', {}, String(x)))))))));
+      messages.map((m) => el('tr', {}, [dt(m.created_at, true), m.text.slice(0, 40), m.audience, m.sent, m.failed, m.status].map((x) => el('td', {}, String(x)))))))));
 }
 
 // ---------- LINE連携 ----------

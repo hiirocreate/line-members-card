@@ -214,3 +214,13 @@ test('取扱説明書: 店舗の機能・権限に合わせた内容 / 運営だ
   assert.match(buildManual(st, OP, T, { role: 'STORE_ADMIN', record: false }).html, /現在の設定: 店舗のQRを、会員が読み取る方式/);
   assert.ok(st.select('audit_logs').some((a) => a.action === 'MANUAL_ISSUE' && a.detail.version === 2));
 });
+
+test('日時は日本時間で表示・出力される(来店日時のずれ)', async () => {
+  const { fmtJst } = await import('../src/dates.js');
+  assert.equal(fmtJst('2026-10-24T11:43:00.000Z'), '2026/10/24 20:43'); assert.equal(fmtJst('2026-10-24T20:00:00.000Z'), '2026/10/25 05:00'); // 日付をまたぐ
+  assert.equal(fmtJst('2026-10-24T20:00:00.000Z', false), '2026/10/25'); assert.equal(fmtJst(''), ''); assert.equal(fmtJst('x'), '');
+  const { app, m } = (() => { const e = env(); const f = e.app.forms.fields(T); return { app: e.app, m: e.reg('U1') }; })();
+  app.store.update('members', (x) => x.user_id === 'U1', { last_visit_at: '2026-10-24T11:43:00.000Z', registered_at: '2026-10-24T20:30:00.000Z' });
+  const csv = app.members.exportCsv(ADMIN_A, T, { columns: ['member_number', 'registered_at', 'last_visit_at'] });
+  assert.match(csv, /最終来店日時/); assert.match(csv, /2026\/10\/24 20:43/); assert.match(csv, /2026\/10\/25 05:30/); assert.doesNotMatch(csv, /T11:43|Z/);
+});

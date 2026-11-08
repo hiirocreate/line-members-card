@@ -22,4 +22,7 @@ if (bootstrapOperator(app.store, process.env.OPERATOR_EMAIL, process.env.OPERATO
 await app.store.flush?.();
 
 const server = createServer(app).listen(process.env.PORT ?? 8080);
+// 想定外の例外でプロセスが落ちないよう記録だけ行う(Cloud Runの再起動ループ/429防止)
+process.on('unhandledRejection', e => console.error('unhandledRejection', e));
+process.on('uncaughtException', e => console.error('uncaughtException', e));
 process.on('SIGTERM', () => server.close(async () => { await app.store.flush?.(); process.exit(0); }));

@@ -25,7 +25,7 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const JS = 'text/javascript; charset=utf-8';
 const STATIC = { '/app': ['app.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/formkit.js': ['formkit.js', JS],
   '/admin': ['admin.html', 'text/html; charset=utf-8'], '/admin.js': ['admin.js', JS], '/admin.css': ['admin.css', 'text/css; charset=utf-8'],
-  '/cardkit.js': ['cardkit.js', JS], '/vendor/qrcode.min.js': ['vendor/qrcode.min.js', JS], '/vendor/jsQR.js': ['vendor/jsQR.js', JS] };
+  '/cardkit.js': ['cardkit.js', JS], '/effects.js': ['effects.js', JS], '/vendor/qrcode.min.js': ['vendor/qrcode.min.js', JS], '/vendor/jsQR.js': ['vendor/jsQR.js', JS] };
 const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const APP_CSP = "default-src 'none'; script-src 'self' https://static.line-scdn.net; style-src 'self' 'unsafe-inline'; " +
@@ -83,7 +83,7 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     const tok = app.store.find('tenant_urls', (u) => u.tenant_id === tenantId && u.enabled)?.token ?? app.forms.issueRegistrationUrl(actor, tenantId);
     return `https://liff.line.me/${l.liffId}?t=${tok}&visit=${code}`;
   };
-  app.birthday.couponUrl = app.visitRules.couponUrl = app.messaging.couponUrl;
+  app.birthday.couponUrl = app.visitRules.couponUrl = app.revisit.couponUrl = app.messaging.couponUrl;
 
   // 会員に見せるデザイン: 運営が「カードの裏面にQR」をオフにした店舗では、通常の表示(カードの下)に戻す
   const memberDesign = (tenantId) => { const d = app.card.get(tenantId).design; return d.qr === 'flip' && !featureOn(app.store, tenantId, 'qrflip') ? { ...d, qr: 'below' } : d; };
@@ -130,10 +130,12 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
         if (member.status === 'WITHDRAWN') return send(res, 200, { registered: false, withdrawn: true, shop });
         const p = app.members.profile(null, tenantId, member.member_id);
         const rank = featureOn(app.store, tenantId, 'rank') ? app.ranks.forVisits(tenantId, member.visit_count, member.last_visit_at) : null;
+        const rank_up = rank && featureOn(app.store, tenantId, 'rankfx') ? app.ranks.checkUp(tenantId, member, rank) : null; // 会員証を開いたときの、ランクアップ演出(1回だけ)
+        if (rank_up) await app.store.flush?.();
         return send(res, 200, { registered: true, shop, member_number: member.member_number, shopcardUrl: line.shopcardUrl || null,
           last_visit_at: member.last_visit_at || null, visit_count: Number(member.visit_count) || 0, registered_at: member.registered_at || null, items: p.items.map(({ field_id, label, value, raw, registered }) => ({ field_id, label, value, raw, registered })),
           notice: p.notice, consents: p.consents,
-          scan_mode: app.members.scanMode(tenantId), card: memberDesign(tenantId), prefs: app.members.prefsOf(member), rank, card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), reading: app.members.cardReading(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
+          scan_mode: app.members.scanMode(tenantId), card: memberDesign(tenantId), prefs: app.members.prefsOf(member), rank, rank_up, card_data: { name: app.members.cardName(tenantId, member), parts: app.members.cardNameParts(tenantId, member), reading: app.members.cardReading(tenantId, member), member_number: member.member_number, registered_at: member.registered_at || null } });
       }
       if (req.method === 'GET' && rest === 'qr') return send(res, 200, app.members.issueVisitCode(tenantId, userId));
       if (rest === 'coupons' || rest === 'coupon') { // クーポン (会員本人・有効な会員のみ)
@@ -324,6 +326,11 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if (path === '/scan-mode' && req.method === 'GET') return ok({ mode: app.members.scanMode(needTenant()) });
     if (path === '/scan-mode' && req.method === 'PUT') return ok({ mode: app.members.setScanMode(actor, needTenant(), body.mode) });
     if (path === '/visits/store-qr' && req.method === 'GET') { const t = needTenant(), r = app.members.issueStoreVisitCode(actor, t); return ok({ ...r, url: app.messaging.visitUrl(actor, t, r.code) }); }
+    if (path === '/revisit' && req.method === 'GET') { const t = needTenant(); return ok({ ...app.revisit.get(actor, t), preview: app.revisit.preview(actor, t) }); }
+    if (path === '/revisit' && req.method === 'PUT') { const t = needTenant(); return ok({ ...app.revisit.save(actor, t, body), preview: app.revisit.preview(actor, t) }); }
+    if (path === '/revisit/run' && req.method === 'POST') return ok(await app.revisit.run(actor, needTenant(), { force: true }));
+    if ((m = /^\/members\/(\w+)\/revisit$/.exec(path)) && req.method === 'GET') return ok(app.revisit.memberStat(actor, needTenant(), m[1]));
+    if ((m = /^\/members\/(\w+)\/revisit$/.exec(path)) && req.method === 'PUT') return ok(app.revisit.setMemberEnabled(actor, needTenant(), m[1], body.enabled));
     if (path === '/visit-rules' && req.method === 'GET') return ok({ rules: app.visitRules.list(actor, needTenant()) });
     if (path === '/visit-rules' && req.method === 'POST') return ok(app.visitRules.create(actor, needTenant(), body), 201);
     if ((m = /^\/visit-rules\/([0-9a-f]{32})$/.exec(path)) && req.method === 'PUT') return ok(app.visitRules.update(actor, needTenant(), m[1], body));
@@ -370,11 +377,11 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if ((p === '/api/cron/run' || p === '/api/cron/birthday') && req.method === 'POST') { // Cloud Scheduler 用 (10分おき)。CRON_SECRET を Bearer で渡す
       const got = Buffer.from(req.headers.authorization ?? ''), want = Buffer.from(`Bearer ${cronSecret ?? ''}`);
       if (!cronSecret || got.length !== want.length || !timingSafeEqual(got, want)) return send(res, 401, { error: 'unauthorized' });
-      const results = await app.birthday.runAll(Date.now(), { morningOnly: true }), schedules = await app.schedules.runDue();
+      const results = await app.birthday.runAll(Date.now(), { morningOnly: true }), schedules = await app.schedules.runDue(), revisit = await app.revisit.runAll(Date.now(), { morningOnly: true });
       const hb = { key: 'cron_heartbeat', value: new Date().toISOString() }; // 自動実行が動いている印 (配信予定の画面に表示)
       if (app.store.find('settings', (r) => r.key === 'cron_heartbeat')) app.store.update('settings', (r) => r.key === 'cron_heartbeat', { value: hb.value }); else app.store.insert('settings', hb);
       await app.store.flush?.();
-      return send(res, 200, { results, schedules });
+      return send(res, 200, { results, schedules, revisit });
     }
     let m;
     if ((m = /^\/t\/([0-9a-f]{32})(?:\/([a-z]+)(?:\/([0-9a-f]{32})(?:\/([a-z]+))?)?)?$/.exec(p))) await publicApi(req, res, url, m[1], m[2], m[3], m[4]);

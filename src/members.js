@@ -118,7 +118,7 @@ export class MemberService {
   }
 
   // 受け取る内容の設定 (LINE全体のオン/オフとは別)。既定はすべて受け取る
-  static PREF_KEYS = ['news', 'coupon', 'birthday'];
+  static PREF_KEYS = ['news', 'coupon', 'birthday', 'revisit'];
   prefsOf(m) {
     const p = m.notify_prefs && typeof m.notify_prefs === 'object' ? m.notify_prefs : {};
     return Object.fromEntries(MemberService.PREF_KEYS.map((k) => [k, p[k] !== false]));

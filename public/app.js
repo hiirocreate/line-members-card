@@ -3,6 +3,7 @@
 // ログイン: LINEアプリ内では LIFF が自動でログイン済み。LINEのIDトークンでサーバが毎回本人確認し、会員とLINEアカウントを紐づける。
 import { el, buildForm } from './formkit.js';
 import { drawCard, applyPage, loadImage, makeQr } from './cardkit.js';
+import { playRankUp } from './effects.js';
 
 const root = document.getElementById('root');
 let T, form, shop, qrTimer, meTimer;
@@ -73,6 +74,7 @@ const assetImage = (id) => (id ? loadImage(PREVIEW ? (previewUrls[id] ?? '') : `
 
 // 会員証QR: 署名付き・5分有効。期限の1分前に自動更新 (スクリーンショットの使い回し防止)
 function showCard(me, opts = {}) {
+  if (me.rank_up) { const up = me.rank_up; me.rank_up = null; setTimeout(() => playRankUp(up), 500); } // ランクが上がったときの演出(店舗が設定したもの)
   clearTimeout(qrTimer); clearInterval(meTimer);
   const storeMode = me.scan_mode === 'STORE_QR'; // 店舗のQRを会員が読み取る方式の店舗: 会員証のQRは出さない
   const design = storeMode ? { ...me.card, qr: 'below' } : me.card;
@@ -202,9 +204,9 @@ const toggleRow = (label, sub, checked, onchange, disabled = false) => {
 };
 // LINEでのお知らせ: 全体のオン/オフ + 受け取る内容の選択
 function noticeSheet(me, onDone) {
-  const err = el('div', { className: 'err' }); let on = !!me.consents?.LINE; const prefs = { ...(me.prefs ?? { news: true, coupon: true, birthday: true }) };
+  const err = el('div', { className: 'err' }); let on = !!me.consents?.LINE; const prefs = { revisit: true, ...(me.prefs ?? { news: true, coupon: true, birthday: true }) };
   const save = async (fn) => { try { err.textContent = ''; await fn(); onDone(); } catch (e) { err.textContent = e.message; } };
-  const kinds = [['news', 'お知らせ・キャンペーン', '新商品やイベントのご案内'], ['coupon', 'クーポン', 'お得なクーポンの配信'], ['birthday', 'お誕生日のお祝い', 'メッセージやクーポン']];
+  const kinds = [['news', 'お知らせ・キャンペーン', '新商品やイベントのご案内'], ['coupon', 'クーポン', 'お得なクーポンの配信'], ['birthday', 'お誕生日のお祝い', 'メッセージやクーポン'], ['revisit', 'しばらくご来店がないときのご案内', 'また来てほしいときのメッセージ']];
   const subs = kinds.map(([k, l, d]) => toggleRow(l, d, prefs[k], (cb) => save(async () => { prefs[k] = cb.checked; await api('prefs', { method: 'POST', body: { [k]: cb.checked } }); }), !on));
   const main = toggleRow('LINEでお知らせを受け取る', '店舗からのお知らせやクーポンをLINEで受け取ります', on, (cb) => save(async () => {
     await api('consent', { method: 'POST', body: { channel: 'LINE', granted: cb.checked } }); on = cb.checked; for (const s of subs) s.cb.disabled = !on;

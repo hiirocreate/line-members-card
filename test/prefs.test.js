@@ -19,8 +19,8 @@ function env() {
 test('受け取る内容の設定: お知らせ/クーポンを断った会員には送らない・値の検証', async () => {
   const { app, reg, calls } = env();
   reg('U1'); reg('U2'); reg('U3');
-  assert.deepEqual(app.members.setPrefsByUser(T, 'U2', { news: false }), { news: false, coupon: true, birthday: true });
-  assert.deepEqual(app.members.setPrefsByUser(T, 'U3', { coupon: false }), { news: true, coupon: false, birthday: true });
+  assert.deepEqual(app.members.setPrefsByUser(T, 'U2', { news: false }), { news: false, coupon: true, birthday: true, revisit: true });
+  assert.deepEqual(app.members.setPrefsByUser(T, 'U3', { coupon: false }), { news: true, coupon: false, birthday: true, revisit: true });
   assert.throws(() => app.members.setPrefsByUser(T, 'U1', { news: 'no' }), /不正/); assert.throws(() => app.members.setPrefsByUser(T, 'none', {}), /存在しません/);
   assert.equal(app.messaging.preview(ADMIN_A, T, undefined).audience, 2); // U2 は断っている
   assert.equal(app.messaging.preview(ADMIN_A, T, undefined, 'x').audience, 2); // クーポン付きは U3 が除外

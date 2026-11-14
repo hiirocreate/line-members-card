@@ -5,7 +5,7 @@ import { audit } from './audit.js';
 
 export const FEATURES = {
   card: '会員証デザイン', scan: '来店スキャン(来店の記録)', messages: 'メッセージ配信', schedule: '予約メッセージ(定期)', birthday: '誕生日配信',
-  visitrules: '来店回数配信', coupons: 'クーポン', rank: '会員ランク', qrflip: 'カードの裏面にQR(スワイプで表示)',
+  visitrules: '来店回数配信', coupons: 'クーポン', rank: '会員ランク', qrflip: 'カードの裏面にQR(スワイプで表示)', revisit: '再来店のお知らせ(来店頻度)', rankfx: 'ランクアップ演出',
 };
 const tenantOf = (store, id) => store.find('tenants', (t) => t.tenant_id === id);
 export const featureOn = (store, tenantId, key) => { const f = tenantOf(store, tenantId)?.features; return !(f && typeof f === 'object' && f[key] === false); };
@@ -27,5 +27,5 @@ export function setFeatures(store, actor, tenantId, input) {
 
 // 管理APIのパス → 機能。ここに載っていないパスは制限されない
 const ROUTES = [[/^\/card(\/|$)/, 'card'], [/^\/visits\/(scan|store-qr)$/, 'scan'], [/^\/scan-mode$/, 'scan'], [/^\/members\/\w+\/visit$/, 'scan'], [/^\/messages(\/|$)/, 'messages'], [/^\/schedules(\/|$)/, 'schedule'],
-  [/^\/birthday(\/|$)/, 'birthday'], [/^\/visit-rules(\/|$)/, 'visitrules'], [/^\/coupons(\/|$)/, 'coupons'], [/^\/ranks?(\/|$)/, 'rank']];
+  [/^\/birthday(\/|$)/, 'birthday'], [/^\/visit-rules(\/|$)/, 'visitrules'], [/^\/coupons(\/|$)/, 'coupons'], [/^\/ranks?(\/|$)/, 'rank'], [/^\/revisit(\/|$)/, 'revisit'], [/^\/members\/\w+\/revisit$/, 'revisit']];
 export const featureForPath = (path) => ROUTES.find(([re]) => re.test(path))?.[1] ?? null;

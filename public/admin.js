@@ -1,7 +1,7 @@
 // 管理画面 (SPA)。DOM は textContent / プロパティ代入のみで組み立て、HTML文字列は使わない。
 import { el, buildForm, collect, control } from './formkit.js';
 import { PRESETS, METALS, drawCard, loadImage, makeQr, contrast, applyPage, CARD_W, CARD_H } from './cardkit.js';
-import { playRankUp, EFFECT_KINDS } from './effects.js';
+import { playRankUp, EFFECT_KINDS, BADGE_SHAPES } from './effects.js';
 
 const root = document.getElementById('root');
 const TYPES = { TEXT: '1行テキスト', TEXTAREA: '複数行テキスト', NUMBER: '数値', DATE: '日付', TEL: '電話番号', EMAIL: 'メールアドレス', ZIP: '郵便番号', URL: 'URL',
@@ -988,11 +988,12 @@ async function rankView() {
     const c2 = el('input', { type: 'color', value: r.card_color2 || r.card_color1 || '#444444', disabled: !r.card_color1, style: CS + (r.card_color1 ? '' : ';opacity:.35'), oninput: () => { r.card_color2 = c2.value; changed(); } });
     const ms = el('select', { style: 'width:auto;padding:4px 6px', title: 'メタリック(金属調)にすると、上の2色より優先されます', onchange: () => { r.card_metal = ms.value; changed(); } }, el('option', { value: '' }, 'メタリックなし'), Object.entries(METALS).map(([k, m]) => el('option', { value: k, selected: r.card_metal === k }, m.label)));
     const fxs = el('select', { style: 'width:auto;padding:4px 6px', title: 'このランクになったときの演出。「共通」なら、下の「ランクアップ演出」の設定を使います', onchange: () => { r.effect_kind = fxs.value; } }, el('option', { value: '' }, '共通'), Object.entries(EFFECT_KINDS).map(([k, l]) => el('option', { value: k, selected: r.effect_kind === k }, l)));
-    const fxb = btn('▶', () => playRankUp({ force: true, kind: r.effect_kind || st.effect.kind, seconds: st.effect.seconds, title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color }), 'sm');
+    const fxi = el('input', { type: 'text', maxLength: 3, value: r.badge_icon ?? '', placeholder: '共通', title: 'このランクのバッジの記号(例: 👑 💎)。空欄なら共通', style: 'width:56px;flex:none;padding:5px 8px;text-align:center', oninput: () => { r.badge_icon = fxi.value.trim(); } });
+    const fxb = btn('▶', () => playRankUp({ force: true, kind: r.effect_kind || st.effect.kind, seconds: st.effect.seconds, title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color, badge: { ...st.effect.badge, showTitle: st.effect.badge.show_title !== false, showStars: st.effect.badge.show_stars !== false, icon: r.badge_icon || st.effect.badge.icon } }), 'sm');
     const line = (...c) => el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px' }, ...c);
     return el('div', { style: 'padding:8px 0;border-top:1px solid #eceff3' },
       line(el('b', { style: 'width:20px' }, String(i + 1)), t, n, lbl('回の来店から'), i === 0 ? null : el('span', { style: 'display:inline-flex;align-items:center;gap:6px;margin-left:8px' }, lbl('最終来店から'), dd, lbl('日で1つ下がる')), el('span', { className: 'sp' }), i === 0 ? null : btn('×', () => { st.ranks.splice(i, 1); draw(); changed(); }, 'sm')),
-      line(el('span', { style: 'width:20px' }), lbl('★の色'), sc, el('label', { style: 'display:inline-flex;align-items:center;gap:5px;margin-left:10px' }, on, lbl('カードの色を変える')), lbl('左上'), c1, lbl('右下'), c2, lbl('または'), ms, ...(i > 0 && featOn('rankfx') ? [lbl('演出'), fxs, fxb] : [])));
+      line(el('span', { style: 'width:20px' }), lbl('★の色'), sc, el('label', { style: 'display:inline-flex;align-items:center;gap:5px;margin-left:10px' }, on, lbl('カードの色を変える')), lbl('左上'), c1, lbl('右下'), c2, lbl('または'), ms, ...(i > 0 && featOn('rankfx') ? [lbl('演出'), fxs, lbl('記号'), fxi, fxb] : [])));
   })); };
   draw(); drawPreview();
   const enabled = el('input', { type: 'checkbox', checked: st.enabled, style: 'width:auto;margin:0', onchange: () => { st.enabled = enabled.checked; } });
@@ -1003,13 +1004,24 @@ async function rankView() {
   const fxOn = el('input', { type: 'checkbox', checked: !!st.effect.enabled, style: 'width:auto;margin:0', onchange: () => { st.effect.enabled = fxOn.checked; } });
   const fxKind = el('select', { style: 'width:auto', onchange: () => { st.effect.kind = fxKind.value; } }, Object.entries(EFFECT_KINDS).map(([k, l]) => el('option', { value: k, selected: st.effect.kind === k }, l)));
   const fxSec = el('input', { type: 'number', min: 2, max: 10, value: st.effect.seconds, style: 'width:70px', oninput: () => { st.effect.seconds = Number(fxSec.value); } });
-  const top = () => { const i = st.ranks.length - 1, r = st.ranks[i]; return { title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color }; };
+  const B = st.effect.badge, bLabel = el('input', { type: 'text', maxLength: 16, value: B.label, placeholder: 'RANK UP!', style: 'width:120px', oninput: () => { B.label = bLabel.value; } });
+  const bIcon = el('input', { type: 'text', maxLength: 3, value: B.icon, style: 'width:60px;text-align:center', oninput: () => { B.icon = bIcon.value.trim() || '★'; } });
+  const bPick = el('select', { style: 'width:auto', onchange: () => { if (bPick.value) { B.icon = bIcon.value = bPick.value; bPick.value = ''; } } }, el('option', { value: '' }, '候補から選ぶ'), ['★', '👑', '💎', '🏆', '🔥', '🎉', '🌟', '🥇', '♠', '🎯'].map((x) => el('option', { value: x }, x)));
+  const bShape = el('select', { style: 'width:auto', onchange: () => { B.shape = bShape.value; } }, Object.entries(BADGE_SHAPES).map(([k, l]) => el('option', { value: k, selected: B.shape === k }, l)));
+  const bCustom = el('input', { type: 'checkbox', checked: !!B.color, style: 'width:auto;margin:0', onchange: () => { B.color = bCustom.checked ? bColor.value : ''; bColor.disabled = !bCustom.checked; } });
+  const bColor = el('input', { type: 'color', value: B.color || '#f5b301', disabled: !B.color, style: 'width:34px;height:28px;padding:0;border:1px solid #cfd4dc;border-radius:6px;background:none', oninput: () => { B.color = bColor.value; } });
+  const bTitle = el('input', { type: 'checkbox', checked: B.show_title !== false, style: 'width:auto;margin:0', onchange: () => { B.show_title = bTitle.checked; } }), bStars = el('input', { type: 'checkbox', checked: B.show_stars !== false, style: 'width:auto;margin:0', onchange: () => { B.show_stars = bStars.checked; } });
+  const top = () => { const i = st.ranks.length - 1, r = st.ranks[i]; return { title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color, badge: { ...st.effect.badge, showTitle: st.effect.badge.show_title !== false, showStars: st.effect.badge.show_stars !== false, icon: r.badge_icon || st.effect.badge.icon } }; };
   const fxCard = el('div', { className: 'card' }, el('h2', {}, 'ランクアップ演出'),
     el('div', { className: 'hint', style: 'margin-bottom:8px' }, '会員のランクが上がったあと、会員証を開いたときに、画面に演出が出ます(1回だけ。タップで閉じられます)。ランクごとに別の演出にもできます(各ランクの「演出」)。設定は下の「保存」で反映されます。'),
     chk(fxOn, el('b', {}, 'ランクアップ演出を表示する')),
     el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px' }, el('span', { className: 'hint' }, '演出'), fxKind, el('span', { className: 'hint' }, '表示時間'), fxSec, el('span', { className: 'hint' }, '秒'), btn('▶ プレビュー', () => playRankUp({ force: true, kind: st.effect.kind, seconds: st.effect.seconds, ...top() }), 'sm')),
     el('div', { className: 'row', style: 'margin-top:8px;flex-wrap:wrap' }, Object.entries(EFFECT_KINDS).map(([k, l]) => btn(`${l}を見る`, () => playRankUp({ force: true, kind: k, seconds: st.effect.seconds, ...top() }), 'sm'))),
-    el('div', { className: 'hint', style: 'margin-top:6px' }, 'プレビューは、いまの設定(最上位のランク)で表示します。'));
+    el('h3', { style: 'font-size:13px;margin:14px 0 6px' }, 'バッジの編集'),
+    el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center' }, el('span', { className: 'hint' }, '見出し'), bLabel, el('span', { className: 'hint' }, '記号'), bIcon, bPick, el('span', { className: 'hint' }, '形'), bShape),
+    el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:8px' }, el('label', { style: 'display:inline-flex;align-items:center;gap:5px;cursor:pointer' }, bCustom, '色を指定する'), bColor, el('span', { className: 'hint' }, '(指定しないと、ランクの★の色になります)'),
+      el('label', { style: 'display:inline-flex;align-items:center;gap:5px;cursor:pointer' }, bTitle, 'ランク名を出す'), el('label', { style: 'display:inline-flex;align-items:center;gap:5px;cursor:pointer' }, bStars, '★を出す')),
+    el('div', { className: 'hint', style: 'margin-top:6px' }, '見出しを空にすると、見出しなしで表示します。記号は絵文字(👑・💎・🏆 など)も使えます。ランクごとの記号は、上の各ランクの「記号」で変えられます。プレビューは、いまの設定(最上位のランク)で表示します。'));
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '会員ランク'),
     el('div', { className: 'hint', style: 'margin-bottom:8px' }, '来店回数に応じて、会員証に称号と★(ランクが上がるごとに1つ増える)が出ます。ランクごとに★の色とカードの色を変えられます(背景が画像のカードは色が変わりません)。'),
     chk(enabled, el('b', {}, '会員ランクを有効にする')), chk(showNext, '会員画面に「次のランクまであと○回」を表示する'),

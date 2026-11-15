@@ -112,3 +112,16 @@ test('お知らせAPI: 未読→既読、運営の手動お知らせが店舗に
     assert.equal((await call('/api/admin/announcements', { token: O })).json.items.length, 1);
   } finally { srv.close(); }
 });
+
+test('ランクアップ演出: バッジの編集(見出し・記号・形・色・ランク別の記号)', () => {
+  const { app, reg } = env(); const m = reg('UA'), get = () => app.store.find('members', (x) => x.member_id === m.member_id);
+  const ranks = [{ title: 'レギュラー', min_visits: 0, star_color: '#cd7f32' }, { title: 'ゴールド', min_visits: 5, star_color: '#f5b301', badge_icon: '👑' }];
+  const bad = (badge, re) => assert.throws(() => app.ranks.save(ADMIN_A, T, { enabled: true, ranks, effect: { enabled: true, kind: 'badge', seconds: 4, badge } }), (e) => e.details.some((x) => re.test(x)));
+  bad({ label: 'x'.repeat(17) }, /見出し/); bad({ icon: '' }, /記号/); bad({ icon: 'abcd' }, /記号/); bad({ shape: 'zz' }, /形/); bad({ color: 'red' }, /色/);
+  assert.throws(() => app.ranks.save(ADMIN_A, T, { enabled: true, ranks: ranks.map((x) => ({ ...x, badge_icon: 'abcdef' })) }), (e) => e.details.some((x) => /記号/.test(x)));
+  assert.equal(app.ranks.get(ADMIN_A, T).effect.badge.label, 'RANK UP!'); // 既定
+  app.ranks.save(ADMIN_A, T, { enabled: true, ranks, effect: { enabled: true, kind: 'badge', seconds: 4, badge: { label: 'おめでとう', icon: '💎', shape: 'hex', color: '#AA00FF', show_title: false, show_stars: true } } });
+  app.ranks.checkUp(T, get(), app.ranks.forVisits(T, 0));
+  const up = app.ranks.checkUp(T, get(), app.ranks.forVisits(T, 5));
+  assert.deepEqual(up.badge, { label: 'おめでとう', icon: '👑', shape: 'hex', color: '#aa00ff', showTitle: false, showStars: true }); // ランク別の記号が優先
+});

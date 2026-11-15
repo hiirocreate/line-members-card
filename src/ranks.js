@@ -13,7 +13,11 @@ export const DEFAULT_RANKS = [
 ];
 
 export const EFFECTS = { confetti: '紙吹雪', flash: '光・フラッシュ', badge: 'バッジ出現', grand: '豪華な特別演出' };
-const DEFAULT_FX = { enabled: false, kind: 'confetti', seconds: 4 };
+export const BADGE_SHAPES = { circle: '円', rounded: '角丸', hex: '六角形', shield: '盾', star: '星' };
+export const DEFAULT_BADGE = { label: 'RANK UP!', icon: '★', shape: 'circle', color: '', show_title: true, show_stars: true };
+const DEFAULT_FX = { enabled: false, kind: 'confetti', seconds: 4, badge: DEFAULT_BADGE };
+const badgeOf = (fx) => ({ ...DEFAULT_BADGE, ...(fx?.badge ?? {}) });
+const iconOk = (v) => typeof v === 'string' && v.length >= 1 && v.length <= 8 && [...v].length <= 3;
 
 export class RankService {
   constructor(store) { this.store = store; }
@@ -21,7 +25,7 @@ export class RankService {
   get(actor, tenantId) {
     require_(actor, 'CARD_DESIGN', tenantId);
     const c = this.#row(tenantId)?.config;
-    return { enabled: !!c?.enabled, show_next: c?.show_next !== false, ranks: c?.ranks?.length ? c.ranks : DEFAULT_RANKS, effect: { ...DEFAULT_FX, ...(c?.effect ?? {}) }, version: Number(this.#row(tenantId)?.version) || 0 };
+    return { enabled: !!c?.enabled, show_next: c?.show_next !== false, ranks: c?.ranks?.length ? c.ranks : DEFAULT_RANKS, effect: { ...DEFAULT_FX, ...(c?.effect ?? {}), badge: badgeOf(c?.effect) }, version: Number(this.#row(tenantId)?.version) || 0 };
   }
   save(actor, tenantId, input) {
     require_(actor, 'CARD_DESIGN', tenantId);
@@ -37,7 +41,8 @@ export class RankService {
       const dd = r?.demote_days === '' || r?.demote_days === undefined || r?.demote_days === null ? '' : Number(r.demote_days);
       if (dd !== '' && (!Number.isInteger(dd) || dd < 1 || dd > 3650)) errors.push(`${i + 1}番目: ランクダウンの日数は1〜3650の整数で指定してください`);
       const ek = r?.effect_kind ?? ''; if (ek !== '' && !(ek in EFFECTS)) errors.push(`${i + 1}番目: 演出の種類が不正です`);
-      return { title, effect_kind: ek in EFFECTS ? ek : '', min_visits: min, star_color: color('star_color', '☆の色', false), card_color1: c1, card_color2: c1 ? (c2 || c1) : '', card_metal: METALS.includes(metal) ? metal : '', demote_days: i === 0 ? '' : dd };
+      const bi = r?.badge_icon ?? ''; if (bi !== '') { if (!iconOk(bi)) errors.push(`${i + 1}番目: バッジの記号は3文字以内で入力してください`); else { try { assertSafeText(bi, 'バッジの記号'); } catch (e) { errors.push(e.message); } } }
+      return { title, effect_kind: ek in EFFECTS ? ek : '', badge_icon: bi === '' || !iconOk(bi) ? '' : bi, min_visits: min, star_color: color('star_color', '☆の色', false), card_color1: c1, card_color2: c1 ? (c2 || c1) : '', card_metal: METALS.includes(metal) ? metal : '', demote_days: i === 0 ? '' : dd };
     });
     if (ranks.length && ranks[0].min_visits !== 0) errors.push('最初のランクの来店回数は0にしてください');
     for (let i = 1; i < ranks.length; i++) if (!(ranks[i].min_visits > ranks[i - 1].min_visits)) { errors.push('来店回数は、ランクが上がるごとに大きくしてください'); break; }
@@ -46,7 +51,13 @@ export class RankService {
     if (!(kind in EFFECTS)) errors.push('演出の種類が不正です');
     if (!Number.isFinite(seconds) || seconds < 2 || seconds > 10) errors.push('演出の表示時間は2〜10秒で指定してください');
     if (errors.length) throw new ValidationError('会員ランクの入力内容に誤りがあります', errors);
-    const config = { effect: { enabled: fx.enabled === true, kind, seconds }, enabled: !!input.enabled, show_next: input.show_next !== false, ranks }, cur = this.#row(tenantId);
+    const bd = { ...DEFAULT_BADGE, ...(fx.badge ?? {}) };
+    if (typeof bd.label !== 'string' || bd.label.length > 16) errors.push('バッジの見出しは16文字以内で入力してください'); else { try { assertSafeText(bd.label, 'バッジの見出し'); } catch (e) { errors.push(e.message); } }
+    if (!iconOk(bd.icon)) errors.push('バッジの記号は1〜3文字で入力してください'); else { try { assertSafeText(bd.icon, 'バッジの記号'); } catch (e) { errors.push(e.message); } }
+    if (!(bd.shape in BADGE_SHAPES)) errors.push('バッジの形が不正です');
+    if (bd.color !== '' && !HEX.test(bd.color ?? '')) errors.push('バッジの色は #RRGGBB で指定してください');
+    if (errors.length) throw new ValidationError('会員ランクの入力内容に誤りがあります', errors);
+    const config = { effect: { enabled: fx.enabled === true, kind, seconds, badge: { label: bd.label, icon: bd.icon, shape: bd.shape, color: bd.color ? bd.color.toLowerCase() : '', show_title: bd.show_title !== false, show_stars: bd.show_stars !== false } }, enabled: !!input.enabled, show_next: input.show_next !== false, ranks }, cur = this.#row(tenantId);
     if (cur) this.store.update('member_ranks', (r) => r.tenant_id === tenantId, { config, version: (Number(cur.version) || 0) + 1, updated_at: new Date().toISOString(), updated_by: actor.id });
     else this.store.insert('member_ranks', { tenant_id: tenantId, config, version: 1, updated_at: new Date().toISOString(), updated_by: actor.id });
     audit(this.store, { tenant_id: tenantId, actor, action: 'RANK_UPDATE', detail: { enabled: config.enabled, count: ranks.length } });
@@ -63,7 +74,8 @@ export class RankService {
     const fx = { ...DEFAULT_FX, ...(c.effect ?? {}) };
     if (!fx.enabled || !(rank.stars > seen) || rank.demoted) return null;
     const own = c.ranks[rank.stars - 1]?.effect_kind;
-    return { kind: own || fx.kind, seconds: fx.seconds, title: rank.title, stars: rank.stars, starColor: rank.starColor, from: c.ranks[seen - 1]?.title ?? '' };
+    const b = badgeOf(fx), icon = c.ranks[rank.stars - 1]?.badge_icon || b.icon;
+    return { kind: own || fx.kind, seconds: fx.seconds, badge: { label: b.label, icon, shape: b.shape, color: b.color, showTitle: b.show_title !== false, showStars: b.show_stars !== false }, title: rank.title, stars: rank.stars, starColor: rank.starColor, from: c.ranks[seen - 1]?.title ?? '' };
   }
   // 絞り込みの選択肢用: 有効なときのランクの称号 (低い順)
   titles(actor, tenantId) {

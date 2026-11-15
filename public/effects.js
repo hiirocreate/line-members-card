@@ -28,20 +28,26 @@ function flash(layer, ms) {
   rays.animate([{ opacity: 0, transform: 'rotate(0) scale(.6)' }, { opacity: 1, offset: 0.2 }, { opacity: 0, transform: 'rotate(50deg) scale(1.1)' }], { duration: ms, easing: 'ease-out', fill: 'forwards' });
 }
 
+const CLIP = { hex: 'polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0 50%)', shield: 'polygon(0 0,100% 0,100% 58%,50% 100%,0 58%)', star: 'polygon(50% 0,62% 36%,98% 38%,69% 60%,79% 96%,50% 74%,21% 96%,31% 60%,2% 38%,38% 36%)' };
+export const BADGE_SHAPES = { circle: '円', rounded: '角丸', hex: '六角形', shield: '盾', star: '星' };
 function badge(layer, ms, o, big) {
+  const b = { label: 'RANK UP!', icon: '★', shape: 'circle', color: '', showTitle: true, showStars: true, ...(o.badge ?? {}) }, col = b.color || o.starColor || '#f5b301', size = big ? 170 : 140;
   const wrap = mk('div', 'position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);text-align:center;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.55);font-family:sans-serif;pointer-events:none');
-  const stars = '★'.repeat(Math.min(10, o.stars || 1));
-  const ring = mk('div', `width:${big ? 170 : 140}px;height:${big ? 170 : 140}px;margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${big ? 58 : 48}px;background:radial-gradient(circle at 35% 30%,#fff7d1,${o.starColor || '#f5b301'} 55%,#7a5200);box-shadow:0 0 0 4px rgba(255,255,255,.85),0 0 30px 8px ${(o.starColor || '#f5b301')}aa;color:#fff`, '★');
-  wrap.append(mk('div', 'font-size:14px;letter-spacing:.3em;font-weight:700;margin-bottom:10px', 'RANK UP!'), ring, mk('div', `margin-top:12px;font-size:${big ? 30 : 26}px;font-weight:800`, o.title || ''), mk('div', `margin-top:4px;font-size:16px;letter-spacing:.15em;color:${o.starColor || '#ffd54a'}`, stars));
+  const shape = b.shape === 'circle' ? 'border-radius:50%' : b.shape === 'rounded' ? 'border-radius:24%' : `clip-path:${CLIP[b.shape] ?? CLIP.hex}`;
+  const ring = mk('div', `width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-size:${(big ? 58 : 48) - ([...b.icon].length - 1) * 12}px;${shape};background:radial-gradient(circle at 35% 30%,#fff7d1,${col} 55%,#00000066);${b.shape === 'circle' || b.shape === 'rounded' ? `box-shadow:0 0 0 4px rgba(255,255,255,.85),0 0 30px 8px ${col}aa;` : ''}color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.4)`, b.icon);
+  const holder = mk('div', `margin:0 auto;width:${size}px;height:${size}px;filter:drop-shadow(0 0 14px ${col}cc)`); holder.append(ring);
+  wrap.append(b.label ? mk('div', 'font-size:14px;letter-spacing:.3em;font-weight:700;margin-bottom:10px', b.label) : '', holder);
+  if (b.showTitle) wrap.append(mk('div', `margin-top:12px;font-size:${big ? 30 : 26}px;font-weight:800`, o.title || ''));
+  if (b.showStars) wrap.append(mk('div', `margin-top:4px;font-size:16px;letter-spacing:.15em;color:${col}`, '★'.repeat(Math.min(10, o.stars || 1))));
   layer.append(wrap);
   wrap.animate([{ opacity: 0, transform: 'translate(-50%,-50%) scale(.2)' }, { opacity: 1, transform: 'translate(-50%,-50%) scale(1.18)', offset: 0.28 }, { transform: 'translate(-50%,-50%) scale(1)', offset: 0.4 }, { opacity: 1, offset: 0.85 }, { opacity: 0, transform: 'translate(-50%,-50%) scale(1.05)' }], { duration: ms, fill: 'forwards' });
-  if (big) ring.animate([{ transform: 'rotate(0)' }, { transform: 'rotate(360deg)' }], { duration: 1200, easing: 'cubic-bezier(.2,.7,.3,1)' });
+  if (big) holder.animate([{ transform: 'rotate(0)' }, { transform: 'rotate(360deg)' }], { duration: 1200, easing: 'cubic-bezier(.2,.7,.3,1)' });
 }
 
 // 文字だけの控えめな表示(紙吹雪・光の演出で使う。大きなバッジは出さない)
 function caption(layer, ms, o) {
   const c = mk('div', 'position:absolute;left:0;right:0;top:40%;text-align:center;color:#fff;font-family:sans-serif;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.7);pointer-events:none');
-  c.append(mk('div', 'font-size:13px;letter-spacing:.3em', 'RANK UP!'), mk('div', 'font-size:30px;margin-top:4px', o.title || ''), mk('div', `font-size:15px;letter-spacing:.2em;margin-top:2px;color:${o.starColor || '#ffd54a'}`, '★'.repeat(Math.min(10, o.stars || 1))));
+  c.append(mk('div', 'font-size:13px;letter-spacing:.3em', o.badge?.label ?? 'RANK UP!'), mk('div', 'font-size:30px;margin-top:4px', o.title || ''), mk('div', `font-size:15px;letter-spacing:.2em;margin-top:2px;color:${o.starColor || '#ffd54a'}`, '★'.repeat(Math.min(10, o.stars || 1))));
   layer.append(c);
   c.animate([{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none', offset: 0.18 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }], { duration: ms, fill: 'forwards' });
 }

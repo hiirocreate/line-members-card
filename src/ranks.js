@@ -13,10 +13,11 @@ export const DEFAULT_RANKS = [
 ];
 
 export const EFFECTS = { confetti: '紙吹雪', flash: '光・フラッシュ', badge: 'バッジ出現', grand: '豪華な特別演出' };
-export const BADGE_SHAPES = { circle: '円', rounded: '角丸', hex: '六角形', shield: '盾', star: '星' };
+export const BADGE_SHAPES = { circle: 'メダル', seal: 'ロゼット', shield: '盾', ribbon: 'リボン付きメダル', star: '星' };
+const LEGACY_SHAPE = { rounded: 'circle', hex: 'seal' }; // 以前の形は、近い形に置き換える
 export const DEFAULT_BADGE = { label: 'RANK UP!', icon: '★', shape: 'circle', color: '', show_title: true, show_stars: true };
 const DEFAULT_FX = { enabled: false, kind: 'confetti', seconds: 4, badge: DEFAULT_BADGE };
-const badgeOf = (fx) => ({ ...DEFAULT_BADGE, ...(fx?.badge ?? {}) });
+const badgeOf = (fx) => { const b = { ...DEFAULT_BADGE, ...(fx?.badge ?? {}) }; b.shape = LEGACY_SHAPE[b.shape] ?? b.shape; return b; };
 const iconOk = (v) => typeof v === 'string' && v.length >= 1 && v.length <= 8 && [...v].length <= 3;
 
 export class RankService {
@@ -51,7 +52,7 @@ export class RankService {
     if (!(kind in EFFECTS)) errors.push('演出の種類が不正です');
     if (!Number.isFinite(seconds) || seconds < 2 || seconds > 10) errors.push('演出の表示時間は2〜10秒で指定してください');
     if (errors.length) throw new ValidationError('会員ランクの入力内容に誤りがあります', errors);
-    const bd = { ...DEFAULT_BADGE, ...(fx.badge ?? {}) };
+    const bd = badgeOf(fx);
     if (typeof bd.label !== 'string' || bd.label.length > 16) errors.push('バッジの見出しは16文字以内で入力してください'); else { try { assertSafeText(bd.label, 'バッジの見出し'); } catch (e) { errors.push(e.message); } }
     if (!iconOk(bd.icon)) errors.push('バッジの記号は1〜3文字で入力してください'); else { try { assertSafeText(bd.icon, 'バッジの記号'); } catch (e) { errors.push(e.message); } }
     if (!(bd.shape in BADGE_SHAPES)) errors.push('バッジの形が不正です');

@@ -120,8 +120,8 @@ test('ランクアップ演出: バッジの編集(見出し・記号・形・�
   bad({ label: 'x'.repeat(17) }, /見出し/); bad({ icon: '' }, /記号/); bad({ icon: 'abcd' }, /記号/); bad({ shape: 'zz' }, /形/); bad({ color: 'red' }, /色/);
   assert.throws(() => app.ranks.save(ADMIN_A, T, { enabled: true, ranks: ranks.map((x) => ({ ...x, badge_icon: 'abcdef' })) }), (e) => e.details.some((x) => /記号/.test(x)));
   assert.equal(app.ranks.get(ADMIN_A, T).effect.badge.label, 'RANK UP!'); // 既定
-  app.ranks.save(ADMIN_A, T, { enabled: true, ranks, effect: { enabled: true, kind: 'badge', seconds: 4, badge: { label: 'おめでとう', icon: '💎', shape: 'hex', color: '#AA00FF', show_title: false, show_stars: true } } });
+  app.ranks.save(ADMIN_A, T, { enabled: true, ranks, effect: { enabled: true, kind: 'badge', seconds: 4, badge: { label: 'おめでとう', icon: '💎', shape: 'ribbon', color: '#AA00FF', show_title: false, show_stars: true } } });
   app.ranks.checkUp(T, get(), app.ranks.forVisits(T, 0));
   const up = app.ranks.checkUp(T, get(), app.ranks.forVisits(T, 5));
-  assert.deepEqual(up.badge, { label: 'おめでとう', icon: '👑', shape: 'hex', color: '#aa00ff', showTitle: false, showStars: true }); // ランク別の記号が優先
+  assert.deepEqual(up.badge, { label: 'おめでとう', icon: '👑', shape: 'ribbon', color: '#aa00ff', showTitle: false, showStars: true }); // ランク別の記号が優先
 });

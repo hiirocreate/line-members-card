@@ -38,9 +38,17 @@ function badge(layer, ms, o, big) {
   if (big) ring.animate([{ transform: 'rotate(0)' }, { transform: 'rotate(360deg)' }], { duration: 1200, easing: 'cubic-bezier(.2,.7,.3,1)' });
 }
 
+// 文字だけの控えめな表示(紙吹雪・光の演出で使う。大きなバッジは出さない)
+function caption(layer, ms, o) {
+  const c = mk('div', 'position:absolute;left:0;right:0;top:40%;text-align:center;color:#fff;font-family:sans-serif;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.7);pointer-events:none');
+  c.append(mk('div', 'font-size:13px;letter-spacing:.3em', 'RANK UP!'), mk('div', 'font-size:30px;margin-top:4px', o.title || ''), mk('div', `font-size:15px;letter-spacing:.2em;margin-top:2px;color:${o.starColor || '#ffd54a'}`, '★'.repeat(Math.min(10, o.stars || 1))));
+  layer.append(c);
+  c.animate([{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none', offset: 0.18 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }], { duration: ms, fill: 'forwards' });
+}
+
 export function playRankUp(o, host = document.body) {
   return new Promise((resolve) => {
-    const ms = Math.max(2, Math.min(10, Number(o.seconds) || 4)) * 1000, reduce = matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const ms = Math.max(2, Math.min(10, Number(o.seconds) || 4)) * 1000, reduce = !o.force && matchMedia?.('(prefers-reduced-motion: reduce)').matches; // 端末の「動きを減らす」設定のときは、バッジだけ(管理画面のプレビューは常に本来の演出)
     const kind = reduce ? 'badge' : (EFFECT_KINDS[o.kind] ? o.kind : 'confetti');
     const layer = mk('div', 'position:fixed;inset:0;z-index:99999;overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent');
     const stops = []; let done = false;
@@ -49,8 +57,8 @@ export function playRankUp(o, host = document.body) {
     else if (kind === 'badge') layer.style.background = 'rgba(0,0,0,.45)';
     host.append(layer);
     layer.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: 'forwards' });
-    if (kind === 'confetti') { stops.push(confetti(layer, ms, 150)); badge(layer, ms, o, false); }
-    if (kind === 'flash') { flash(layer, ms); badge(layer, ms, o, false); }
+    if (kind === 'confetti') { stops.push(confetti(layer, ms, 170)); caption(layer, ms, o); }
+    if (kind === 'flash') { flash(layer, ms); layer.style.background = 'rgba(0,0,0,.25)'; caption(layer, ms, o); }
     if (kind === 'badge') badge(layer, ms, o, false);
     if (kind === 'grand') { flash(layer, ms); stops.push(confetti(layer, ms, 260)); badge(layer, ms, o, true); }
     layer.addEventListener('click', end);

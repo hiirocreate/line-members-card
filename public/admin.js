@@ -988,7 +988,7 @@ async function rankView() {
     const c2 = el('input', { type: 'color', value: r.card_color2 || r.card_color1 || '#444444', disabled: !r.card_color1, style: CS + (r.card_color1 ? '' : ';opacity:.35'), oninput: () => { r.card_color2 = c2.value; changed(); } });
     const ms = el('select', { style: 'width:auto;padding:4px 6px', title: 'メタリック(金属調)にすると、上の2色より優先されます', onchange: () => { r.card_metal = ms.value; changed(); } }, el('option', { value: '' }, 'メタリックなし'), Object.entries(METALS).map(([k, m]) => el('option', { value: k, selected: r.card_metal === k }, m.label)));
     const fxs = el('select', { style: 'width:auto;padding:4px 6px', title: 'このランクになったときの演出。「共通」なら、下の「ランクアップ演出」の設定を使います', onchange: () => { r.effect_kind = fxs.value; } }, el('option', { value: '' }, '共通'), Object.entries(EFFECT_KINDS).map(([k, l]) => el('option', { value: k, selected: r.effect_kind === k }, l)));
-    const fxb = btn('▶', () => playRankUp({ kind: r.effect_kind || st.effect.kind, seconds: st.effect.seconds, title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color }), 'sm');
+    const fxb = btn('▶', () => playRankUp({ force: true, kind: r.effect_kind || st.effect.kind, seconds: st.effect.seconds, title: r.title || `ランク${i + 1}`, stars: i + 1, starColor: r.star_color }), 'sm');
     const line = (...c) => el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px' }, ...c);
     return el('div', { style: 'padding:8px 0;border-top:1px solid #eceff3' },
       line(el('b', { style: 'width:20px' }, String(i + 1)), t, n, lbl('回の来店から'), i === 0 ? null : el('span', { style: 'display:inline-flex;align-items:center;gap:6px;margin-left:8px' }, lbl('最終来店から'), dd, lbl('日で1つ下がる')), el('span', { className: 'sp' }), i === 0 ? null : btn('×', () => { st.ranks.splice(i, 1); draw(); changed(); }, 'sm')),
@@ -1007,8 +1007,8 @@ async function rankView() {
   const fxCard = el('div', { className: 'card' }, el('h2', {}, 'ランクアップ演出'),
     el('div', { className: 'hint', style: 'margin-bottom:8px' }, '会員のランクが上がったあと、会員証を開いたときに、画面に演出が出ます(1回だけ。タップで閉じられます)。ランクごとに別の演出にもできます(各ランクの「演出」)。設定は下の「保存」で反映されます。'),
     chk(fxOn, el('b', {}, 'ランクアップ演出を表示する')),
-    el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px' }, el('span', { className: 'hint' }, '演出'), fxKind, el('span', { className: 'hint' }, '表示時間'), fxSec, el('span', { className: 'hint' }, '秒'), btn('▶ プレビュー', () => playRankUp({ kind: st.effect.kind, seconds: st.effect.seconds, ...top() }), 'sm')),
-    el('div', { className: 'row', style: 'margin-top:8px;flex-wrap:wrap' }, Object.entries(EFFECT_KINDS).map(([k, l]) => btn(`${l}を見る`, () => playRankUp({ kind: k, seconds: st.effect.seconds, ...top() }), 'sm'))),
+    el('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px' }, el('span', { className: 'hint' }, '演出'), fxKind, el('span', { className: 'hint' }, '表示時間'), fxSec, el('span', { className: 'hint' }, '秒'), btn('▶ プレビュー', () => playRankUp({ force: true, kind: st.effect.kind, seconds: st.effect.seconds, ...top() }), 'sm')),
+    el('div', { className: 'row', style: 'margin-top:8px;flex-wrap:wrap' }, Object.entries(EFFECT_KINDS).map(([k, l]) => btn(`${l}を見る`, () => playRankUp({ force: true, kind: k, seconds: st.effect.seconds, ...top() }), 'sm'))),
     el('div', { className: 'hint', style: 'margin-top:6px' }, 'プレビューは、いまの設定(最上位のランク)で表示します。'));
   layout(el('div', {}, el('div', { className: 'card' }, el('h2', {}, '会員ランク'),
     el('div', { className: 'hint', style: 'margin-bottom:8px' }, '来店回数に応じて、会員証に称号と★(ランクが上がるごとに1つ増える)が出ます。ランクごとに★の色とカードの色を変えられます(背景が画像のカードは色が変わりません)。'),

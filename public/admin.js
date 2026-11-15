@@ -124,6 +124,16 @@ const HELP = {
   account: { title: 'アカウント', lead: 'ご自身のパスワードと、ログインの安全設定です。', steps: ['パスワードは「変更する」から変えられます(10文字以上)。変えると、他の端末はログアウトされます。', '二段階認証は、パスキー(指紋・顔)、認証アプリ、LINEのコードから選んで設定できます。', '一覧の管理者には、「仮パスワード」「パスワード設定」「再設定リンク」を発行できます(権限のある場合)。'], tips: ['仮パスワードでログインした人は、最初にパスワードの変更が求められます。', '共用のパソコンでは、ログイン画面の「ログイン状態を保持」を外してください。'] },
   ops: { title: '運営', remote: true }, // 運営専用の説明は、ログイン後に運営だけがサーバーから取得する(このファイルには含めない)
 };
+// アップデートのお知らせ: 開くと既読になる(バッジが消える)
+async function newsDialog(bell) {
+  let u; try { u = await api('/updates'); } catch (e) { alert(e.message); return; }
+  const d = el('dialog', { style: 'width:min(640px,94vw)' }, el('h2', {}, '🔔 アップデートのお知らせ'),
+    u.items.length ? u.items.map((n) => el('div', { style: 'padding:10px 0;border-top:1px solid #eceff3' }, el('div', { style: 'display:flex;gap:8px;align-items:center' }, el('b', {}, n.title), n.unread ? el('span', { style: 'background:#d92d20;color:#fff;border-radius:8px;padding:0 6px;font-size:11px' }, 'NEW') : null), el('div', { className: 'hint' }, n.date), el('div', { style: 'white-space:pre-wrap;margin-top:6px;line-height:1.6' }, n.body))) : el('div', { className: 'hint' }, 'お知らせはありません。'),
+    el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('閉じる', () => d.close(), 'pri')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+  if (u.unread) { try { await api('/updates', { method: 'POST' }); bell.querySelector('.bdg')?.remove(); } catch { /* 既読にできなくても表示はできる */ } }
+}
+
 async function helpDialog(tab) {
   let h = HELP[tab]; if (!h) return;
   if (h.remote) { try { h = (await api('/ops-help')).help; } catch (e) { alert(e.message); return; } }
@@ -145,7 +155,9 @@ function layout(content) {
       ST.tenants.map((t) => el('option', { value: t.tenant_id, selected: t.tenant_id === ST.tenant }, `${t.name} (${t.tenant_id})`)));
     head.append(sel);
   }
-  head.append(...(HELP[ST.tab] ? [btn('？ 使い方', () => helpDialog(ST.tab), 'help')] : []), el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { if (formDirty() && !confirm('保存していない変更があります。破棄してログアウトしますか?')) return; discardFormDraft(); store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
+  const bell = btn('🔔 お知らせ', () => newsDialog(bell), 'help'); bell.style.position = 'relative';
+  api('/updates').then((u) => { ST.news = u; if (u.unread) bell.append(el('span', { className: 'bdg', style: 'margin-left:6px;background:#d92d20;color:#fff;border-radius:10px;padding:0 6px;font-size:11px' }, String(u.unread))); }).catch(() => {});
+  head.append(bell, ...(HELP[ST.tab] ? [btn('？ 使い方', () => helpDialog(ST.tab), 'help')] : []), el('span', { className: 'hint' }, ST.me.role), btn('ログアウト', () => { if (formDirty() && !confirm('保存していない変更があります。破棄してログアウトしますか?')) return; discardFormDraft(); store.set(null); ST.me = null; ST.tab = 'form'; render(); }));
   const nav = el('nav', { id: 'tabs' });
   const burger = el('button', { className: 'burger', 'aria-label': 'メニュー', 'aria-expanded': 'false', 'aria-controls': 'tabs', onclick: () => { const o = nav.classList.toggle('open'); burger.setAttribute('aria-expanded', String(o)); burger.classList.toggle('on', o); } },
     el('span', { className: 'bars' }), el('span', { className: 'cur' }, tabs.find(([k]) => k === ST.tab)?.[1] ?? 'メニュー'));

@@ -4,6 +4,7 @@ import { deliveryOverview } from './overview.js';
 import { getRolePerms, setRolePerms } from './roleperms.js';
 import { buildManual } from './manual.js';
 import { FEATURES, featureOn, featureMap, setFeatures, featureForPath } from './features.js';
+import { UPDATES } from './updates.js';
 // HTTP サーバ: 会員向け(LIFF/ミニアプリ)API・管理API・静的ファイル。
 // 店舗の特定: 会員側は URL 内 token (サーバ検証)、管理側はログインした管理者の tenant_id (リクエスト値は信用しない)。
 import http from 'node:http';
@@ -209,6 +210,12 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
     if (path === '/me' && req.method === 'GET') {
       const t = actor.tenantId && app.store.find('tenants', (x) => x.tenant_id === actor.tenantId);
       return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)), mustChange: !!actor.mustChange, renew: renewSession(app.store, bearer(req), sessionSecret), features: isOp || !actor.tenantId ? featureMap(app.store, null) : featureMap(app.store, actor.tenantId) });
+    }
+    if (path === '/updates' && (req.method === 'GET' || req.method === 'POST')) { // アップデートのお知らせ(管理者・スタッフごとに既読を覚える)
+      const row = app.store.find('admins', (x) => x.admin_id === actor.id), items = UPDATES.filter((u) => !u.feature || isOp || !actor.tenantId || featureOn(app.store, actor.tenantId, u.feature));
+      if (req.method === 'POST') { if (row && UPDATES[0]) app.store.update('admins', (x) => x.admin_id === actor.id, { news_seen: UPDATES[0].id }); return ok(); }
+      const seen = row?.news_seen ? UPDATES.findIndex((u) => u.id === row.news_seen) : -1; // 既読の位置(これより新しいものが未読)
+      return ok({ items: items.map((u) => ({ ...u, unread: seen < 0 || UPDATES.indexOf(u) < seen })), unread: items.filter((u) => seen < 0 || UPDATES.indexOf(u) < seen).length });
     }
     if (isOp && path === '/tenants' && req.method === 'GET') return ok({ tenants: app.store.select('tenants').map(({ tenant_id, name, status }) => ({ tenant_id, name, status, features: featureMap(app.store, tenant_id) })) });
     if (path === '/admins' && req.method === 'GET') return ok({ admins: listAdmins(app.store, actor) });

@@ -75,3 +75,9 @@ test('ランクアップ演出: 上がったときだけ1回。初回・ラン�
   app.ranks.save(ADMIN_A, T, { enabled: true, ranks, effect: { enabled: false, kind: 'confetti', seconds: 5 } });
   assert.equal(app.ranks.checkUp(T, get(), rk(10)), null); // 演出オフ
 });
+
+test('アップデートのお知らせ: 一覧・未読・既読', async () => {
+  const { UPDATES } = await import('../src/updates.js');
+  assert.ok(UPDATES.length > 0 && new Set(UPDATES.map((u) => u.id)).size === UPDATES.length);
+  assert.ok(UPDATES.every((u) => u.id && u.title && u.body && /^\d{4}-\d{2}-\d{2}$/.test(u.date)));
+});

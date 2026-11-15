@@ -19,7 +19,7 @@ export const SHEETS = {
   audit_logs: ['log_id', 'tenant_id', 'actor', 'action', 'target', 'detail', 'created_at'],
   settings: ['key', 'value'],
   admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at', 'totp_secret', 'totp_pending',
-    'totp_enabled', 'recovery_codes', 'token_epoch', 'line_user_id', 'line_linked_at', 'must_change_password'],
+    'totp_enabled', 'recovery_codes', 'token_epoch', 'line_user_id', 'line_linked_at', 'must_change_password', 'news_seen'],
   passkeys: ['credential_id', 'admin_id', 'name', 'public_key', 'alg', 'sign_count', 'transports', 'created_at', 'last_used_at'],
   coupons: ['coupon_id', 'tenant_id', 'title', 'benefit', 'description', 'valid_from', 'valid_until', 'status', 'created_by', 'created_at', 'updated_at', 'valid_days', 'multi_use', 'once_per_day'],
   coupon_grants: ['coupon_id', 'tenant_id', 'member_id', 'message_id', 'granted_at', 'grant_id', 'expires_at'],

@@ -393,8 +393,11 @@ async function cardView() {
   const qr = makeQr('PREVIEW-SAMPLE', 190);
   const canvas = document.createElement('canvas'); // 「カード画像をダウンロード」用 (画面には出さない)
   // プレビューは、会員が実際に見る画面(/app?preview=1)をそのまま埋め込む。同じコードで描くので、見た目が必ず一致する
-  const frame = el('iframe', { src: '/app?preview=1', title: '会員画面のプレビュー', style: 'width:390px;height:780px;border:0;background:transparent;transform:scale(.76);transform-origin:top left' }); // 実機(約390px幅)の表示を縮小して見せる
-  const phone = el('div', { className: 'phone', style: 'padding:0;overflow:hidden;max-height:none;height:593px' }, frame);
+  const frame = el('iframe', { src: '/app?preview=1', title: '会員画面のプレビュー', style: 'width:390px;height:780px;border:0;background:transparent;transform-origin:top left;max-width:none' }); // 実機(約390px幅)の表示を縮小して見せる
+  const phone = el('div', { className: 'phone', style: 'padding:0;overflow:hidden;max-height:none;height:593px;width:min(100%,360px)' }, frame);
+  // 枠の幅に合わせて、プレビューの縮小率と高さを自動で調整する(余白・はみ出しが出ない)
+  const fit = () => { const w = phone.clientWidth; if (!w) return; const sc = w / 390; frame.style.transform = `scale(${sc})`; phone.style.height = `${Math.round(780 * sc) + 20}px`; };
+  new ResizeObserver(fit).observe(phone); fit();
   const err = el('div', { className: 'err' }), ok = el('div', { className: 'ok' }), state = el('span', { className: 'hint' }, '');
   let frameReady = false, previewBack = false; // previewBack: プレビューを裏面にして確認する
   window.addEventListener('message', (e) => { if (e.origin === location.origin && e.source === frame.contentWindow && e.data?.type === 'preview-ready') { frameReady = true; redraw(); } });

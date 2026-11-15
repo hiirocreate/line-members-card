@@ -11,6 +11,7 @@ import { BirthdayService } from './birthday.js';
 import { VisitRuleService } from './visitrules.js';
 import { RankService } from './ranks.js';
 import { RevisitService } from './revisit.js';
+import { AnnouncementService } from './announcements.js';
 import { ScheduleService } from './schedules.js';
 
 // secret: 署名/暗号化鍵の元 (本番は SESSION_SECRET)。未指定なら起動ごとのランダム値 (開発・テスト用)。
@@ -29,5 +30,5 @@ export function createApp(fileOrStore = null, { secret = randomBytes(32).toStrin
   const ranks = new RankService(store); members.ranks = ranks; // 会員の絞り込み条件「会員ランク」で使う
   const schedules = new ScheduleService(store, members, messaging);
   const revisit = new RevisitService(store, vault, members, coupons, fetchImpl);
-  return { revisit, store, vault, forms, members, card: new CardService(store), coupons, messaging, birthday, visitRules, ranks, schedules, fetchImpl };
+  return { announcements: new AnnouncementService(store), revisit, store, vault, forms, members, card: new CardService(store), coupons, messaging, birthday, visitRules, ranks, schedules, fetchImpl };
 }

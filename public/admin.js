@@ -128,7 +128,7 @@ const HELP = {
 async function newsDialog(bell) {
   let u; try { u = await api('/updates'); } catch (e) { alert(e.message); return; }
   const d = el('dialog', { style: 'width:min(640px,94vw)' }, el('h2', {}, '🔔 アップデートのお知らせ'),
-    u.items.length ? u.items.map((n) => el('div', { style: 'padding:10px 0;border-top:1px solid #eceff3' }, el('div', { style: 'display:flex;gap:8px;align-items:center' }, el('b', {}, n.title), n.unread ? el('span', { style: 'background:#d92d20;color:#fff;border-radius:8px;padding:0 6px;font-size:11px' }, 'NEW') : null), el('div', { className: 'hint' }, n.date), el('div', { style: 'white-space:pre-wrap;margin-top:6px;line-height:1.6' }, n.body))) : el('div', { className: 'hint' }, 'お知らせはありません。'),
+    u.items.length ? u.items.map((n) => el('div', { style: 'padding:10px 0;border-top:1px solid #eceff3' }, el('div', { style: 'display:flex;gap:8px;align-items:center' }, n.from ? el('span', { style: 'background:#e8f0fe;color:#1a4fb4;border-radius:8px;padding:0 6px;font-size:11px' }, n.from) : null, el('b', {}, n.title), n.unread ? el('span', { style: 'background:#d92d20;color:#fff;border-radius:8px;padding:0 6px;font-size:11px' }, 'NEW') : null), el('div', { className: 'hint' }, n.date), el('div', { style: 'white-space:pre-wrap;margin-top:6px;line-height:1.6' }, n.body))) : el('div', { className: 'hint' }, 'お知らせはありません。'),
     el('div', { className: 'row', style: 'margin-top:16px;justify-content:flex-end' }, btn('閉じる', () => d.close(), 'pri')));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
   if (u.unread) { try { await api('/updates', { method: 'POST' }); bell.querySelector('.bdg')?.remove(); } catch { /* 既読にできなくても表示はできる */ } }
@@ -1311,8 +1311,39 @@ async function accountView() {
 }
 
 // ---------- 運営 ----------
+// 運営からのお知らせ(手動): 全店舗または選んだ店舗の管理画面「🔔 お知らせ」に出す
+function announcementsCard(items, tenants) {
+  const err = el('div', { className: 'err' });
+  const edit = (a) => {
+    const title = el('input', { type: 'text', maxLength: 60, value: a?.title ?? '', placeholder: 'タイトル' }), body = el('textarea', { maxLength: 3000, style: 'min-height:140px', value: a?.body ?? '', placeholder: '本文(改行できます)' });
+    const from = el('input', { type: 'date', value: a?.visible_from ?? '' }), until = el('input', { type: 'date', value: a?.visible_until ?? '' });
+    const en = el('input', { type: 'checkbox', checked: a ? a.enabled : true, style: 'width:auto;margin:0' });
+    const all = el('input', { type: 'checkbox', checked: !a?.tenant_ids?.length, style: 'width:auto;margin:0' }), boxes = tenants.map((t) => ({ t, cb: el('input', { type: 'checkbox', checked: !!a?.tenant_ids?.includes(t.tenant_id), style: 'width:auto;margin:0' }) }));
+    const sync = () => boxes.forEach((b) => { b.cb.disabled = all.checked; }); all.onchange = sync; sync();
+    const e = el('div', { className: 'err' });
+    const d = el('dialog', { style: 'width:min(600px,94vw)' }, el('h2', {}, a ? 'お知らせを編集' : 'お知らせを作成'), lab('タイトル', title), lab('本文', body),
+      el('label', { style: 'display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer' }, all, el('b', {}, 'すべての店舗に出す')),
+      el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px 14px' }, boxes.map((b) => el('label', { style: 'display:inline-flex;align-items:center;gap:5px;cursor:pointer' }, b.cb, b.t.name))),
+      el('div', { style: 'display:flex;flex-wrap:wrap;gap:10px;margin-top:10px' }, lab('表示開始日(任意)', from), lab('表示終了日(任意)', until)),
+      el('label', { style: 'display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer' }, en, '表示する(オフにすると、一時的に隠れます)'), e,
+      el('div', { className: 'row', style: 'justify-content:flex-end;margin-top:12px' }, btn('キャンセル', () => d.close()), btn('保存', run(e, async () => {
+        const data = { title: title.value, body: body.value, visible_from: from.value, visible_until: until.value, enabled: en.checked, tenant_ids: all.checked ? [] : boxes.filter((b) => b.cb.checked).map((b) => b.t.tenant_id) };
+        if (!all.checked && !data.tenant_ids.length) throw new Error('出す店舗を選んでください');
+        await api(a ? `/announcements/${a.announcement_id}` : '/announcements', { method: a ? 'PUT' : 'POST', body: data }); d.close(); render();
+      }), 'pri')));
+    document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+  };
+  const scope = (a) => (a.tenant_ids.length ? a.tenant_ids.map((id) => tenants.find((t) => t.tenant_id === id)?.name ?? id).join('、') : 'すべての店舗');
+  return el('div', { className: 'card' }, el('h2', {}, '運営からのお知らせ'),
+    el('div', { className: 'hint', style: 'margin-bottom:8px' }, '店舗の管理者・スタッフの「🔔 お知らせ」に、手動で書いたお知らせを出します(メンテナンス・休止・注意喚起など)。店舗の人に見られてよい内容だけを書いてください。'),
+    items.length ? el('div', { style: 'overflow-x:auto' }, el('table', {}, el('tr', {}, ['作成日', 'タイトル', '対象', '表示期間', '状態', ''].map((h) => el('th', {}, h))),
+      items.map((a) => el('tr', { style: a.enabled ? '' : 'opacity:.55' }, el('td', {}, dt(a.created_at)), el('td', {}, a.title), el('td', {}, scope(a)), el('td', {}, a.visible_from || a.visible_until ? `${a.visible_from || '〜'} 〜 ${a.visible_until || ''}` : '常時'),
+        el('td', {}, a.enabled ? pill('表示中', 'on') : pill('非表示', 'off')), el('td', {}, el('div', { className: 'row' }, btn('編集', () => edit(a), 'sm'), btn('削除', run(err, async () => { if (confirm(`「${a.title}」を削除します。よろしいですか？`)) { await api(`/announcements/${a.announcement_id}`, { method: 'DELETE' }); render(); } }), 'sm'))))))) : el('div', { className: 'hint' }, 'まだありません。'),
+    err, el('div', { className: 'row', style: 'margin-top:8px' }, btn('＋ お知らせを作成', () => edit(null), 'pri')));
+}
+
 async function opsView() {
-  const [{ tenants }, { admins }, { terms }, { master }] = await Promise.all([api('/tenants'), api('/admins'), api('/banned-terms'), api('/master')]);
+  const [{ tenants }, { admins }, { terms }, { master }, { items: anns }] = await Promise.all([api('/tenants'), api('/admins'), api('/banned-terms'), api('/master'), api('/announcements')]);
   ST.tenants = tenants;
   const e1 = el('div', { className: 'err' }), e2 = el('div', { className: 'err' }), e3 = el('div', { className: 'err' }), e4 = el('div', { className: 'err' }), o4 = el('div', { className: 'ok' });
   const tid = el('input', { type: 'text', placeholder: '店舗ID (例: SHOP001)' }), tname = el('input', { type: 'text', placeholder: '店舗名' });
@@ -1324,7 +1355,7 @@ async function opsView() {
   const ms = el('select', {}, [['NORMAL', 'NORMAL(通常)'], ['PERSONAL', 'PERSONAL(個人情報)'], ['SENSITIVE', 'SENSITIVE(要配慮)']].map(([k, v]) => el('option', { value: k }, v)));
   const mp = el('input', { type: 'text', placeholder: '利用目的(任意)' }), mo = el('textarea', { placeholder: '選択式の場合: 選択肢を1行に1つ' });
   const bt = el('textarea', { value: terms.join('\n'), style: 'min-height:140px' });
-  layout(el('div', {},
+  layout(el('div', {}, announcementsCard(anns, tenants),
     el('div', { className: 'card' }, el('h2', {}, '店舗'), tenants.map((t) => el('div', { className: 'field' }, el('div', { className: 'name' }, el('b', {}, t.name), el('span', { className: 'hint' }, t.tenant_id), el('span', { className: 'hint' }, Object.values(t.features).some((v) => !v) ? `制限あり(${Object.values(t.features).filter((v) => !v).length}機能オフ)` : ''), btn('機能設定', () => featuresDialog(t), 'sm'), btn('権限設定', () => rolePermsDialog(t), 'sm'), btn('説明書を発行', () => manualDialog(t), 'sm')))),
       el('div', { className: 'row' }, tid, tname, btn('店舗を作成', run(e1, async () => { const r = await api('/tenants', { method: 'POST', body: { tenantId: tid.value.trim(), name: tname.value.trim() } }); infoDialog('店舗を作成しました', [`登録token: ${r.registrationToken}`]); render(); }), 'pri')), e1),
     el('div', { className: 'card' }, el('h2', {}, '管理者アカウント'), adminsCard(admins, e2, render),

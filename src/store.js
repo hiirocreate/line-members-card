@@ -19,7 +19,7 @@ export const SHEETS = {
   audit_logs: ['log_id', 'tenant_id', 'actor', 'action', 'target', 'detail', 'created_at'],
   settings: ['key', 'value'],
   admins: ['admin_id', 'tenant_id', 'email', 'password_hash', 'role', 'grants', 'enabled', 'created_at', 'totp_secret', 'totp_pending',
-    'totp_enabled', 'recovery_codes', 'token_epoch', 'line_user_id', 'line_linked_at', 'must_change_password', 'news_seen'],
+    'totp_enabled', 'recovery_codes', 'token_epoch', 'line_user_id', 'line_linked_at', 'must_change_password', 'news_seen', 'ann_seen_at'],
   passkeys: ['credential_id', 'admin_id', 'name', 'public_key', 'alg', 'sign_count', 'transports', 'created_at', 'last_used_at'],
   coupons: ['coupon_id', 'tenant_id', 'title', 'benefit', 'description', 'valid_from', 'valid_until', 'status', 'created_by', 'created_at', 'updated_at', 'valid_days', 'multi_use', 'once_per_day'],
   coupon_grants: ['coupon_id', 'tenant_id', 'member_id', 'message_id', 'granted_at', 'grant_id', 'expires_at'],
@@ -30,6 +30,7 @@ export const SHEETS = {
   visit_rule_sends: ['rule_id', 'tenant_id', 'member_id', 'visit_count', 'sent_at', 'status', 'coupon_granted'],
   revisit_settings: ['tenant_id', 'enabled', 'multiplier', 'min_days', 'stop_days', 'window_days', 'min_visits', 'message_text', 'coupon_id', 'coupon_days', 'updated_at', 'updated_by', 'last_run_at', 'last_result'],
   revisit_sends: ['tenant_id', 'member_id', 'last_visit_at', 'sent_at', 'status', 'coupon_granted'],
+  announcements: ['announcement_id', 'tenant_ids', 'title', 'body', 'visible_from', 'visible_until', 'enabled', 'created_by', 'created_at', 'updated_at'],
   member_ranks: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
   scheduled_messages: ['schedule_id', 'tenant_id', 'name', 'enabled', 'kind', 'run_date', 'weekday', 'day_of_month', 'time', 'message_text', 'coupon_id', 'coupon_days', 'where', 'created_by', 'created_at', 'updated_at', 'last_run_key', 'last_result'],
   card_designs: ['tenant_id', 'config', 'version', 'updated_at', 'updated_by'],
@@ -38,7 +39,7 @@ export const SHEETS = {
   visits: ['visit_id', 'tenant_id', 'member_id', 'visited_at', 'method', 'recorded_by'],
   messages: ['message_id', 'tenant_id', 'created_by', 'text', 'audience', 'sent', 'failed', 'errors', 'status', 'created_at', 'coupon_id'],
 };
-const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result', 'notify_prefs', 'features', 'where', 'role_perms']);
+const JSON_COLS = new Set(['options', 'snapshot', 'detail', 'value', 'grants', 'recovery_codes', 'errors', 'public_key', 'transports', 'config', 'last_result', 'notify_prefs', 'features', 'where', 'role_perms', 'tenant_ids']);
 
 // 保存するときに、セル単位で暗号化する列 (個人情報・連絡先・LINEのID・URLのトークン・操作履歴の詳細)。
 // メモリ上は平文で扱うので、検索・画面・Excel出力は、これまでどおり読みやすい形で使える。暗号化されるのは、Google スプレッドシート(や保存ファイル)に書き出される中身だけ。

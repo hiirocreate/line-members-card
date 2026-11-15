@@ -81,3 +81,34 @@ test('アップデートのお知らせ: 一覧・未読・既読', async () => 
   assert.ok(UPDATES.length > 0 && new Set(UPDATES.map((u) => u.id)).size === UPDATES.length);
   assert.ok(UPDATES.every((u) => u.id && u.title && u.body && /^\d{4}-\d{2}-\d{2}$/.test(u.date)));
 });
+
+test('運営からのお知らせ: 運営のみ作成・対象店舗/期間/停止で表示を制御', () => {
+  const { app } = env(); const a = app.announcements;
+  const bad = (i, re) => assert.throws(() => a.create(OP, i), (e) => e.details.some((x) => re.test(x)));
+  bad({ title: '', body: 'x' }, /タイトル/); bad({ title: 't', body: '' }, /本文/); bad({ title: 't', body: 'x', tenant_ids: ['NOPE'] }, /店舗が存在/); bad({ title: 't', body: 'x', visible_from: '2026-05-02', visible_until: '2026-05-01' }, /終了日/);
+  assert.throws(() => a.create(ADMIN_A, { title: 't', body: 'x' }), /権限/); assert.throws(() => a.list(ADMIN_A), /権限/);
+  const all = a.create(OP, { title: '全店', body: 'メンテナンス' }), one = a.create(OP, { title: 'A店だけ', body: 'x', tenant_ids: [T] });
+  const old = a.create(OP, { title: '期限切れ', body: 'x', visible_until: '2020-01-01' });
+  assert.deepEqual(a.visible(T, NOW).map((x) => x.title).sort(), ['A店だけ', '全店']); assert.deepEqual(a.visible('SHOP002', NOW).map((x) => x.title), ['全店']);
+  assert.equal(a.visible(null, NOW).length, 2);
+  a.update(OP, all.announcement_id, { enabled: false }); assert.deepEqual(a.visible('SHOP002', NOW), []);
+  a.remove(OP, one.announcement_id); assert.equal(a.list(OP).length, 2); assert.ok(old);
+});
+
+test('お知らせAPI: 未読→既読、運営の手動お知らせが店舗に届く', async () => {
+  const { createServer } = await import('../src/server.js'), { createAdmin } = await import('../src/auth.js');
+  const { app } = env(), PW = 'correct-horse-battery', SECRET = 'c'.repeat(40);
+  createAdmin(app.store, OP, { role: 'STORE_ADMIN', tenantId: T, email: 'a@x.jp', password: PW }); createAdmin(app.store, OP, { role: 'OPERATOR', tenantId: null, email: 'o@x.jp', password: PW });
+  const srv = createServer(app, { sessionSecret: SECRET, verifyLine: async () => 'x', liffId: '1-abcde', lineChannelId: '1' }).listen(0), base = `http://127.0.0.1:${srv.address().port}`;
+  const call = async (path, { method = 'GET', body, token } = {}) => { const r = await fetch(base + path, { method, headers: token ? { authorization: `Bearer ${token}` } : {}, body: body && JSON.stringify(body) }); return { status: r.status, json: await r.json() }; };
+  try {
+    const login = async (email) => (await call('/api/admin/login', { method: 'POST', body: { email, password: PW } })).json.token, A = await login('a@x.jp'), O = await login('o@x.jp');
+    let u = (await call('/api/admin/updates', { token: A })).json; const n0 = u.unread; assert.ok(n0 > 0);
+    assert.equal((await call('/api/admin/updates', { method: 'POST', token: A })).status, 200);
+    assert.equal((await call('/api/admin/updates', { token: A })).json.unread, 0);
+    assert.equal((await call('/api/admin/announcements', { method: 'POST', token: A, body: { title: 't', body: 'x' } })).status, 404); // 運営専用(店舗には存在しない扱い)
+    assert.equal((await call('/api/admin/announcements', { method: 'POST', token: O, body: { title: '重要', body: 'メンテ', tenant_ids: [T] } })).status, 201);
+    u = (await call('/api/admin/updates', { token: A })).json; assert.equal(u.unread, 1); assert.equal(u.items.find((x) => x.unread).title, '重要'); assert.equal(u.items.find((x) => x.unread).from, '運営');
+    assert.equal((await call('/api/admin/announcements', { token: O })).json.items.length, 1);
+  } finally { srv.close(); }
+});

@@ -211,12 +211,18 @@ export function createServer(app, { lineChannelId = process.env.LINE_LOGIN_CHANN
       const t = actor.tenantId && app.store.find('tenants', (x) => x.tenant_id === actor.tenantId);
       return send(res, 200, { id: actor.id, role: actor.role, tenantId: actor.tenantId, tenantName: t?.name ?? null, perms: PERMS.filter((x) => can(actor, x)), mustChange: !!actor.mustChange, renew: renewSession(app.store, bearer(req), sessionSecret), features: isOp || !actor.tenantId ? featureMap(app.store, null) : featureMap(app.store, actor.tenantId) });
     }
-    if (path === '/updates' && (req.method === 'GET' || req.method === 'POST')) { // アップデートのお知らせ(管理者・スタッフごとに既読を覚える)
-      const row = app.store.find('admins', (x) => x.admin_id === actor.id), items = UPDATES.filter((u) => !u.feature || isOp || !actor.tenantId || featureOn(app.store, actor.tenantId, u.feature));
-      if (req.method === 'POST') { if (row && UPDATES[0]) app.store.update('admins', (x) => x.admin_id === actor.id, { news_seen: UPDATES[0].id }); return ok(); }
-      const seen = row?.news_seen ? UPDATES.findIndex((u) => u.id === row.news_seen) : -1; // 既読の位置(これより新しいものが未読)
-      return ok({ items: items.map((u) => ({ ...u, unread: seen < 0 || UPDATES.indexOf(u) < seen })), unread: items.filter((u) => seen < 0 || UPDATES.indexOf(u) < seen).length });
+    if (path === '/updates' && (req.method === 'GET' || req.method === 'POST')) { // アップデート(コード側)と、運営からのお知らせ(手動)。管理者・スタッフごとに既読を覚える
+      const row = app.store.find('admins', (x) => x.admin_id === actor.id), tid = isOp ? null : actor.tenantId;
+      const code = UPDATES.filter((u) => !u.feature || isOp || !actor.tenantId || featureOn(app.store, actor.tenantId, u.feature));
+      const seen = row?.news_seen ? UPDATES.findIndex((u) => u.id === row.news_seen) : -1, seenAt = row?.ann_seen_at || '';
+      if (req.method === 'POST') { if (row) app.store.update('admins', (x) => x.admin_id === actor.id, { news_seen: UPDATES[0]?.id ?? '', ann_seen_at: new Date().toISOString() }); return ok(); }
+      const items = [...code.map((u) => ({ ...u, at: `${u.date}T00:00:00+09:00`, unread: seen < 0 || UPDATES.indexOf(u) < seen })), ...app.announcements.visible(tid).map((u) => ({ ...u, unread: !seenAt || u.at > seenAt }))].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+      return ok({ items, unread: items.filter((u) => u.unread).length });
     }
+    if (isOp && path === '/announcements' && req.method === 'GET') return ok({ items: app.announcements.list(actor) });
+    if (isOp && path === '/announcements' && req.method === 'POST') return ok(app.announcements.create(actor, body), 201);
+    if (isOp && (m = /^\/announcements\/([0-9a-f]{32})$/.exec(path)) && req.method === 'PUT') return ok(app.announcements.update(actor, m[1], body));
+    if (isOp && (m = /^\/announcements\/([0-9a-f]{32})$/.exec(path)) && req.method === 'DELETE') { app.announcements.remove(actor, m[1]); return ok(); }
     if (isOp && path === '/tenants' && req.method === 'GET') return ok({ tenants: app.store.select('tenants').map(({ tenant_id, name, status }) => ({ tenant_id, name, status, features: featureMap(app.store, tenant_id) })) });
     if (path === '/admins' && req.method === 'GET') return ok({ admins: listAdmins(app.store, actor) });
     if ((m = /^\/admins\/([\w-]+)\/reset-2fa$/.exec(path)) && req.method === 'POST') { resetTwoFactor(app.store, actor, m[1]); return ok(); }
